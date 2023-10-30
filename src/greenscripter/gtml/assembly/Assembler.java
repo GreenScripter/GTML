@@ -285,6 +285,13 @@ public class Assembler {
 			transitions.forEach(System.out::println);
 			System.out.println();
 
+			//optimize transitions
+			optimize(transitions);
+
+			System.out.println("Optimized: ");
+			transitions.forEach(System.out::println);
+			System.out.println();
+
 			//map to simple turing machine
 			for (GeneralTransition trans : transitions) {
 				List<Transition> result = outputGraph.transitions.get(trans.source);
@@ -310,12 +317,58 @@ public class Assembler {
 				for (Transition other : result) {
 					if (other.read.equals(t.read)) {
 						duplicate = true;
-						System.err.println("Warning: Duplicate transitions for symbol " + other.read + " on state " + t.source+" in " + trans.getErrored() + " line: " + trans.lineNumber);
+						System.err.println("Warning: Duplicate transitions for symbol " + other.read + " on state " + t.source + " in " + trans.getErrored() + " line: " + trans.lineNumber);
 					}
 				}
 				if (!duplicate) result.add(t);
 			}
 
+		}
+	}
+
+	private void optimize(List<GeneralTransition> transitions) {
+		//optimize away AUS transitions
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			if (trans.read.equals(trans.write) && trans.transition.equals("S")) {
+				boolean others = false;
+				for (GeneralTransition t : transitions) {
+					if (t.source.equals(trans.source) && !(t.read.equals(t.write) && t.transition.equals("S"))) {
+						others = true;
+						break;
+					}
+				}
+				if (!others) {
+					if (trans.source.equals(outputGraph.initialState)) {
+						outputGraph.initialState = trans.destination;
+					}
+					System.out.println("Removing: " + trans.getErrored());
+					transitions.remove(i);
+					i--;
+					for (GeneralTransition t : transitions) {
+						if (t.destination.equals(trans.source)) {
+							t.saveTransformation();
+							t.destination = trans.destination;
+						}
+					}
+				}
+			}
+		}
+		//remove unreachable states
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			boolean seen = outputGraph.initialState.equals(trans.source);
+			if (!seen) for (GeneralTransition t : transitions) {
+				if (t == trans) continue;
+				if (t.destination.equals(trans.source)) {
+					seen = true;
+					break;
+				}
+			}
+			if (!seen) {
+				transitions.remove(i);
+				i--;
+			}
 		}
 	}
 
@@ -414,15 +467,7 @@ public class Assembler {
 						inUse.add(t.read);
 					}
 				}
-				//optimize away AUS transitions
-				if (inUse.isEmpty() && trans.transition.equals("AUS")) {
-					for (GeneralTransition t : transitions) {
-						if (t.destination.equals(trans.source)) {
-							t.saveTransformation();
-							t.destination = trans.destination;
-						}
-					}
-				}
+
 				boolean anyAdded = false;
 				for (String s : possibleSymbols) {
 					if (inUse.contains(s)) continue;

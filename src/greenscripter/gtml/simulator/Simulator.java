@@ -14,19 +14,20 @@ public class Simulator {
 	public static void main(String[] args) throws IOException {
 		long compileStart = System.currentTimeMillis();
 
-		//		Assembler assembler = new Assembler(new File("defaultfunctions.gtma"));
-		//		MachineGraph graph = assembler.outputGraph;
-		MachineGraph graph = new MachineGraph(new File("outputtestmangled.gtm"));
+		Assembler assembler = new Assembler(new File("defaultfunctions.gtma"));
+		MachineGraph graph = assembler.outputGraph;
+		//		MachineGraph graph = new MachineGraph(new File("outputtestmangled.gtm"));
 		graph.write(new File("outputtest.gtm"), true);
 		System.out.println(graph.initialState);
 		System.out.println(graph.acceptingStates);
 		System.out.println(graph.transitions);
 		Simulator simulator = new Simulator(graph);
-		simulator.loadTape("abababa");
+		simulator.loadTape("dbababacaba");
 		long start = System.currentTimeMillis();
 
 		while (!simulator.isTerminated()) {
 			simulator.step();
+			//			if (simulator.steps > 50) break;
 		}
 		System.out.println(simulator.isAccepting());
 		System.out.println("Result: " + simulator.getResult());
