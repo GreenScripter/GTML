@@ -19,7 +19,7 @@ import greenscripter.gtml.simulator.MachineGraph.Transition;
 
 public class Assembler {
 
-	MachineGraph outputGraph = new MachineGraph();
+	public MachineGraph outputGraph = new MachineGraph();
 	List<GeneralTransition> transitions = new ArrayList<>();
 
 	public static void main(String[] args) throws Exception {
@@ -306,21 +306,25 @@ public class Assembler {
 	}
 
 	private void applyPTransitions(List<GeneralTransition> transitions) {
+		Map<String, Set<String>> allSuperSources = new HashMap<>();
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			Set<String> superSources = allSuperSources.get(trans.destination);
+			if (superSources == null) {
+				superSources = new HashSet<>();
+				allSuperSources.put(trans.destination, superSources);
+			}
+			superSources.add(trans.read);
+		}
 		for (int i = 0; i < transitions.size(); i++) {
 			GeneralTransition trans = transitions.get(i);
 			if (trans.transition.contains("P")) {
-				trans.transition = trans.transition.replace("P", "");
 				String name = trans.source;
-				Set<String> superSources = new HashSet<>();
-				for (GeneralTransition t : transitions) {
-					if (t.destination.equals(name)) {
-						superSources.add(t.read);
-					}
-				}
+				Set<String> superSources = allSuperSources.get(name);
 				transitions.remove(i);
-
 				for (String s : superSources) {
 					GeneralTransition copy = trans.copy();
+					copy.transition = copy.transition.replace("P", "");
 					copy.source = copy.source + "$from" + s;
 					copy.write = s;
 					transitions.add(i, copy);
@@ -329,6 +333,27 @@ public class Assembler {
 				for (GeneralTransition t : transitions) {
 					if (t.destination.equals(name)) {
 						t.destination = t.destination + "$from" + t.read;
+					}
+				}
+				for (int j = 0; j < transitions.size(); j++) {
+					GeneralTransition t = transitions.get(j);
+					if (t.source.equals(name) && !t.transition.contains("P")) {
+						transitions.remove(j);
+
+						for (String s : superSources) {
+							GeneralTransition copy = t.copy();
+							copy.source = copy.source + "$from" + s;
+							transitions.add(j, copy);
+							j++;
+							if (j < i) {
+								i++;
+							}
+						}
+
+						j--;
+						if (j < i) {
+							i--;
+						}
 					}
 				}
 				i--;
@@ -340,6 +365,7 @@ public class Assembler {
 		for (int i = 0; i < transitions.size(); i++) {
 			GeneralTransition trans = transitions.get(i);
 			if (trans.transition.contains("*")) {
+				trans.saveTransformation();
 				int count = Integer.parseInt(trans.transition.substring(trans.transition.indexOf("*") + 1));
 				trans.transition = trans.transition.substring(0, trans.transition.indexOf("*"));
 				i++;
@@ -367,7 +393,6 @@ public class Assembler {
 		for (int i = 0; i < transitions.size(); i++) {
 			GeneralTransition trans = transitions.get(i);
 			if (trans.transition.contains("A")) {
-				trans.transition = trans.transition.replace("A", "");
 				transitions.remove(i);
 				Set<String> inUse = new HashSet<>();
 				for (GeneralTransition t : transitions) {
@@ -380,6 +405,7 @@ public class Assembler {
 					if (inUse.contains(s)) continue;
 					GeneralTransition copy = trans.copy();
 					copy.read = s;
+					copy.transition = copy.transition.replace("A", "");
 					transitions.add(i, copy);
 					anyAdded = true;
 					i++;
@@ -396,6 +422,7 @@ public class Assembler {
 		for (int i = 0; i < transitions.size(); i++) {
 			GeneralTransition trans = transitions.get(i);
 			if (trans.transition.contains("U")) {
+				trans.saveTransformation();
 				trans.transition = trans.transition.replace("U", "");
 				trans.write = trans.read;
 			}
@@ -407,6 +434,8 @@ public class Assembler {
 			GeneralTransition trans = transitions.get(i);
 			if (trans.destination == null) continue;
 			if (trans.destination.startsWith("$")) {
+				trans.saveTransformation();
+
 				List<String> parts = splitCommas(trans.destination);
 				String name = parts.remove(0).substring(1);
 
@@ -513,6 +542,12 @@ public class Assembler {
 			copy.parent = this;
 			copy.lineNumber = lineNumber;
 			return copy;
+		}
+
+		public void saveTransformation() {
+			GeneralTransition copy = copy();
+			copy.parent = parent;
+			parent = copy;
 		}
 
 		public String getErrored() {
