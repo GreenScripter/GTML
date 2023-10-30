@@ -163,8 +163,16 @@ public class MachineGraph {
 			}
 			others.add(t);
 		}
+		if (!assigned.containsKey(initialState)) {
+			assigned.put(initialState, number);
+			number++;
+		}
 		initialState = "q" + assigned.get(initialState);
 		for (int i = 0; i < acceptingStates.size(); i++) {
+			if (!assigned.containsKey(acceptingStates.get(i))) {
+				assigned.put(acceptingStates.get(i), number);
+				number++;
+			}
 			acceptingStates.set(i, "q" + assigned.get(acceptingStates.get(i)));
 		}
 	}
