@@ -12,22 +12,26 @@ import greenscripter.gtml.simulator.MachineGraph.Transition;
 public class Simulator {
 
 	public static void main(String[] args) throws IOException {
-		long start = System.currentTimeMillis();
-		Assembler assembler = new Assembler(new File("tempmachine.gtma"));
-		MachineGraph graph = assembler.outputGraph;
-		//		MachineGraph graph = new MachineGraph(new File("outputtestmangled.gtm"));
+		long compileStart = System.currentTimeMillis();
+
+		//		Assembler assembler = new Assembler(new File("defaultfunctions.gtma"));
+		//		MachineGraph graph = assembler.outputGraph;
+		MachineGraph graph = new MachineGraph(new File("outputtestmangled.gtm"));
 		graph.write(new File("outputtest.gtm"), true);
 		System.out.println(graph.initialState);
 		System.out.println(graph.acceptingStates);
 		System.out.println(graph.transitions);
 		Simulator simulator = new Simulator(graph);
-		simulator.loadTape("ababaabbababbabbcabababbabbac");
+		simulator.loadTape("abababa");
+		long start = System.currentTimeMillis();
+
 		while (!simulator.isTerminated()) {
 			simulator.step();
 		}
 		System.out.println(simulator.isAccepting());
 		System.out.println("Result: " + simulator.getResult());
 		System.out.println("Steps: " + simulator.steps);
+		System.out.println("Compile time: " + (start - compileStart) + " ms.");
 		System.out.println("Runtime: " + (System.currentTimeMillis() - start) + " ms.");
 		graph.mangleNames();
 		graph.write(new File("outputtestmangled.gtm"), false);
@@ -71,7 +75,8 @@ public class Simulator {
 						break;
 
 				}
-				System.out.println("Line: " + t.lineNumber + " machine code: " + t);
+				if (t.lineNumber != 0) System.out.println("Line: " + t.lineNumber + " machine code: " + t);
+				if (t.lineNumber == 0) System.out.println("Machine code: " + t);
 				state = t.target;
 				return;
 			}

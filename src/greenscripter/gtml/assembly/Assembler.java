@@ -250,7 +250,13 @@ public class Assembler {
 			System.out.println("Modules Applied: ");
 			transitions.forEach(System.out::println);
 			System.out.println();
-
+			for (Module m : modules.values()) {
+				System.out.println("Module " + m.name + ":");
+				System.out.println("Inputs: " + m.inputs);
+				System.out.println("State Inputs: " + m.inputStates);
+				m.transitions.forEach(System.out::println);
+				System.out.println();
+			}
 			//apply * transitions
 			applyStarTransitions(transitions);
 
@@ -299,7 +305,15 @@ public class Assembler {
 				t.source = trans.source;
 				t.target = trans.destination;
 				t.lineNumber = trans.lineNumber;
-				result.add(t);
+
+				boolean duplicate = false;
+				for (Transition other : result) {
+					if (other.read.equals(t.read)) {
+						duplicate = true;
+						System.err.println("Warning: Duplicate transitions for symbol " + other.read + " on state " + t.source+" in " + trans.getErrored() + " line: " + trans.lineNumber);
+					}
+				}
+				if (!duplicate) result.add(t);
 			}
 
 		}
@@ -400,6 +414,15 @@ public class Assembler {
 						inUse.add(t.read);
 					}
 				}
+				//optimize away AUS transitions
+				if (inUse.isEmpty() && trans.transition.equals("AUS")) {
+					for (GeneralTransition t : transitions) {
+						if (t.destination.equals(trans.source)) {
+							t.saveTransformation();
+							t.destination = trans.destination;
+						}
+					}
+				}
 				boolean anyAdded = false;
 				for (String s : possibleSymbols) {
 					if (inUse.contains(s)) continue;
@@ -411,7 +434,7 @@ public class Assembler {
 					i++;
 				}
 				if (!anyAdded) {
-					throw new RuntimeException("Invalid A transition with no states in " + trans.getErrored() + " line: " + trans.lineNumber);
+					System.err.println("Warning: Invalid A transition with no states in " + trans.getErrored() + " line: " + trans.lineNumber);
 				}
 				i--;
 			}
