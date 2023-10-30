@@ -11,8 +11,8 @@ import greenscripter.gtml.simulator.MachineGraph.Transition;
 public class Simulator {
 
 	public static void main(String[] args) throws IOException {
-		MachineGraph graph = new MachineGraph(new File("testmachinea1macroedunionedexpandedanyunchanged.gtm"));
-		graph.write(new File("outputtest.gtm"));
+		MachineGraph graph = new MachineGraph(new File("outputtestmangled.gtm"));
+		graph.write(new File("outputtest.gtm"), false);
 		System.out.println(graph.initialState);
 		System.out.println(graph.acceptingStates);
 		System.out.println(graph.transitions);
@@ -60,6 +60,7 @@ public class Simulator {
 						break;
 
 				}
+				System.out.println("Line: " + t.lineNumber);
 				state = t.target;
 				return;
 			}

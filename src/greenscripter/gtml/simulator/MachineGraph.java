@@ -61,7 +61,7 @@ public class MachineGraph {
 			String line;
 			while ((line = input.readLine()) != null) {
 				List<String> parts = splitCommas(line);
-				if (parts.size() == 5) {
+				if (parts.size() == 5 || parts.size() == 6) {
 					String source = parts.get(0);
 					String read = parts.get(1);
 					String write = parts.get(2);
@@ -79,6 +79,10 @@ public class MachineGraph {
 					};
 					trans.target = dest;
 					trans.source = source;
+					
+					if (parts.size() == 6) {
+						trans.lineNumber = Integer.parseInt(parts.get(5));
+					}
 
 					List<Transition> others = transitions.get(source);
 					if (others == null) {
@@ -96,7 +100,7 @@ public class MachineGraph {
 		}
 	}
 
-	public void write(File file) throws IOException {
+	public void write(File file, boolean debugSymbols) throws IOException {
 		try (BufferedWriter output = new BufferedWriter(new FileWriter(file))) {
 			output.write(mergeCommas(inputSymbols));
 			output.write("\n");
@@ -113,11 +117,55 @@ public class MachineGraph {
 			output.write("\n");
 			for (List<Transition> state : transitions.values()) {
 				for (Transition t : state) {
+					int l = t.lineNumber;
+					if (!debugSymbols) {
+						t.lineNumber = 0;
+					}
 					output.write(t.toString());
+					if (!debugSymbols) {
+						t.lineNumber = l;
+					}
 					output.write("\n");
 				}
 			}
 			output.flush();
+		}
+	}
+
+	public void mangleNames() {
+		int number = 0;
+		Map<String, Integer> assigned = new HashMap<>();
+		List<Transition> allTransitions = new ArrayList<>();
+		for (List<Transition> state : transitions.values()) {
+			for (Transition t : state) {
+				allTransitions.add(t);
+
+				if (!assigned.containsKey(t.source)) {
+					assigned.put(t.source, number);
+					number++;
+				}
+				t.source = "q" + assigned.get(t.source);
+
+				if (!assigned.containsKey(t.target)) {
+					assigned.put(t.target, number);
+					number++;
+				}
+				t.target = "q" + assigned.get(t.target);
+
+			}
+		}
+		transitions.clear();
+		for (Transition t : allTransitions) {
+			List<Transition> others = transitions.get(t.source);
+			if (others == null) {
+				others = new ArrayList<>();
+				transitions.put(t.source, others);
+			}
+			others.add(t);
+		}
+		initialState = "q" + assigned.get(initialState);
+		for (int i = 0; i < acceptingStates.size(); i++) {
+			acceptingStates.set(i, "q" + assigned.get(acceptingStates.get(i)));
 		}
 	}
 
@@ -128,6 +176,7 @@ public class MachineGraph {
 		public String read;
 		public String write;
 		public Move move;
+		public int lineNumber;
 
 		public enum Move {
 
@@ -145,7 +194,7 @@ public class MachineGraph {
 		}
 
 		public String toString() {
-			return mergeCommas(List.of(source, read, write, move.toString(), target));
+			return mergeCommas(List.of(source, read, write, move.toString(), target)) + (lineNumber != 0 ? "," + lineNumber : "");
 		}
 	}
 
@@ -177,7 +226,9 @@ public class MachineGraph {
 
 	public static String mergeCommas(List<String> parts) {
 		StringBuilder sb = new StringBuilder();
+		boolean anyParts = false;
 		for (String s : parts) {
+			if (s == null) continue;
 			for (int i = 0; i < s.length(); i++) {
 				if (s.charAt(i) == '\n') {
 					sb.append("\\n");
@@ -189,9 +240,10 @@ public class MachineGraph {
 				}
 			}
 			sb.append(',');
+			anyParts = true;
 
 		}
-		if (!parts.isEmpty()) {
+		if (anyParts) {
 			sb.setLength(sb.length() - 1);
 		}
 		return sb.toString();
