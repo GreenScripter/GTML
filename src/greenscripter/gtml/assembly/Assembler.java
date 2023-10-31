@@ -15,6 +15,7 @@ import java.io.FileReader;
 import java.io.IOException;
 
 import greenscripter.gtml.simulator.MachineGraph;
+import greenscripter.gtml.simulator.Simulator;
 import greenscripter.gtml.simulator.MachineGraph.Transition;
 
 public class Assembler {
@@ -23,10 +24,12 @@ public class Assembler {
 	List<GeneralTransition> transitions = new ArrayList<>();
 
 	public static void main(String[] args) throws Exception {
-		Assembler a = new Assembler(new File("testmachinea1reversesyntax.gtma"));
-		a.outputGraph.write(new File("outputtest.gtm"), true);
-		a.outputGraph.mangleNames();
-		a.outputGraph.write(new File("outputtestmangled.gtm"), true);
+		//		Assembler a = new Assembler(new File("testmachinea1reversesyntax.gtma"));
+		//		a.outputGraph.write(new File("outputtest.gtm"), true);
+		//		a.outputGraph.mangleNames();
+		//		a.outputGraph.write(new File("outputtestmangled.gtm"), true);
+		//		System.out.println(removeTransitionOperator("A(hello)RM(1)", 'A', new GeneralTransition()));
+		Simulator.main(args);
 
 	}
 
@@ -245,7 +248,7 @@ public class Assembler {
 			}
 
 			//apply modules
-			applyModules(modules, transitions);
+			applyModules(modules);
 
 			System.out.println("Modules Applied: ");
 			transitions.forEach(System.out::println);
@@ -258,35 +261,35 @@ public class Assembler {
 				System.out.println();
 			}
 			//apply * transitions
-			applyStarTransitions(transitions);
+			applyStarTransitions();
 
 			System.out.println("Stars Applied: ");
 			transitions.forEach(System.out::println);
 			System.out.println();
 
 			//apply A transitions
-			applyATransitions(transitions, validSymbols);
+			applyATransitions(validSymbols);
 
 			System.out.println("As Applied: ");
 			transitions.forEach(System.out::println);
 			System.out.println();
 
 			//apply U transitions
-			applyUTransitions(transitions);
+			applyUTransitions();
 
 			System.out.println("Us Applied: ");
 			transitions.forEach(System.out::println);
 			System.out.println();
 
-			//apply P transitions
-			applyPTransitions(transitions);
+			//apply MD transitions
+			applyMDTransitions();
 
-			System.out.println("Ps Applied: ");
+			System.out.println("MDs Applied: ");
 			transitions.forEach(System.out::println);
 			System.out.println();
 
 			//optimize transitions
-			optimize(transitions);
+			optimize();
 
 			System.out.println("Optimized: ");
 			transitions.forEach(System.out::println);
@@ -313,6 +316,13 @@ public class Assembler {
 				t.target = trans.destination;
 				t.lineNumber = trans.lineNumber;
 
+				if (!validSymbols.contains(t.read)) {
+					throw new RuntimeException("Undefined tape symbol: " + t.read + " in " + trans.getErrored() + " line: " + trans.lineNumber);
+				}
+				if (!validSymbols.contains(t.write)) {
+					throw new RuntimeException("Undefined tape symbol: " + t.write + " in " + trans.getErrored() + " line: " + trans.lineNumber);
+				}
+
 				boolean duplicate = false;
 				for (Transition other : result) {
 					if (other.read.equals(t.read)) {
@@ -326,175 +336,13 @@ public class Assembler {
 		}
 	}
 
-	private void optimize(List<GeneralTransition> transitions) {
-		//optimize away AUS transitions
-		for (int i = 0; i < transitions.size(); i++) {
-			GeneralTransition trans = transitions.get(i);
-			if (trans.read.equals(trans.write) && trans.transition.equals("S")) {
-				boolean others = false;
-				for (GeneralTransition t : transitions) {
-					if (t.source.equals(trans.source) && !(t.read.equals(t.write) && t.transition.equals("S"))) {
-						others = true;
-						break;
-					}
-				}
-				if (!others) {
-					if (trans.source.equals(outputGraph.initialState)) {
-						outputGraph.initialState = trans.destination;
-					}
-					System.out.println("Removing: " + trans.getErrored());
-					transitions.remove(i);
-					i--;
-					for (GeneralTransition t : transitions) {
-						if (t.destination.equals(trans.source)) {
-							t.saveTransformation();
-							t.destination = trans.destination;
-						}
-					}
-				}
-			}
+	private void applyModules(Map<String, Module> modules) {
+		for (Module m : modules.values()) {
+			List<String> notAllowed = new ArrayList<>();
+			notAllowed.add(m.name);
+			applyModulesTo(modules, m.transitions, notAllowed);
 		}
-		//remove unreachable states
-		for (int i = 0; i < transitions.size(); i++) {
-			GeneralTransition trans = transitions.get(i);
-			boolean seen = outputGraph.initialState.equals(trans.source);
-			if (!seen) for (GeneralTransition t : transitions) {
-				if (t == trans) continue;
-				if (t.destination.equals(trans.source)) {
-					seen = true;
-					break;
-				}
-			}
-			if (!seen) {
-				transitions.remove(i);
-				i--;
-			}
-		}
-	}
-
-	private void applyPTransitions(List<GeneralTransition> transitions) {
-		Map<String, Set<String>> allSuperSources = new HashMap<>();
-		for (int i = 0; i < transitions.size(); i++) {
-			GeneralTransition trans = transitions.get(i);
-			Set<String> superSources = allSuperSources.get(trans.destination);
-			if (superSources == null) {
-				superSources = new HashSet<>();
-				allSuperSources.put(trans.destination, superSources);
-			}
-			superSources.add(trans.read);
-		}
-		for (int i = 0; i < transitions.size(); i++) {
-			GeneralTransition trans = transitions.get(i);
-			if (trans.transition.contains("P")) {
-				String name = trans.source;
-				Set<String> superSources = allSuperSources.get(name);
-				transitions.remove(i);
-				for (String s : superSources) {
-					GeneralTransition copy = trans.copy();
-					copy.transition = copy.transition.replace("P", "");
-					copy.source = copy.source + "$from" + s;
-					copy.write = s;
-					transitions.add(i, copy);
-					i++;
-				}
-				for (GeneralTransition t : transitions) {
-					if (t.destination.equals(name)) {
-						t.destination = t.destination + "$from" + t.read;
-					}
-				}
-				for (int j = 0; j < transitions.size(); j++) {
-					GeneralTransition t = transitions.get(j);
-					if (t.source.equals(name) && !t.transition.contains("P")) {
-						transitions.remove(j);
-
-						for (String s : superSources) {
-							GeneralTransition copy = t.copy();
-							copy.source = copy.source + "$from" + s;
-							transitions.add(j, copy);
-							j++;
-							if (j < i) {
-								i++;
-							}
-						}
-
-						j--;
-						if (j < i) {
-							i--;
-						}
-					}
-				}
-				i--;
-			}
-		}
-	}
-
-	private void applyStarTransitions(List<GeneralTransition> transitions) {
-		for (int i = 0; i < transitions.size(); i++) {
-			GeneralTransition trans = transitions.get(i);
-			if (trans.transition.contains("*")) {
-				trans.saveTransformation();
-				int count = Integer.parseInt(trans.transition.substring(trans.transition.indexOf("*") + 1));
-				trans.transition = trans.transition.substring(0, trans.transition.indexOf("*"));
-				i++;
-				for (int j = 1; j < count - 1; j++) {
-					GeneralTransition copy = trans.copy();
-					copy.destination = trans.source + "$part" + j;
-					copy.source = trans.source + "$part" + (j - 1);
-					transitions.add(i, copy);
-					i++;
-				}
-
-				GeneralTransition copy = trans.copy();
-				copy.destination = trans.destination;
-				copy.source = trans.source + "$part" + (count - 2);
-				transitions.add(i, copy);
-				i++;
-
-				trans.destination = trans.source + "$part" + 0;
-				i--;
-			}
-		}
-	}
-
-	private void applyATransitions(List<GeneralTransition> transitions, Set<String> possibleSymbols) {
-		for (int i = 0; i < transitions.size(); i++) {
-			GeneralTransition trans = transitions.get(i);
-			if (trans.transition.contains("A")) {
-				transitions.remove(i);
-				Set<String> inUse = new HashSet<>();
-				for (GeneralTransition t : transitions) {
-					if (t.source.equals(trans.source)) {
-						inUse.add(t.read);
-					}
-				}
-
-				boolean anyAdded = false;
-				for (String s : possibleSymbols) {
-					if (inUse.contains(s)) continue;
-					GeneralTransition copy = trans.copy();
-					copy.read = s;
-					copy.transition = copy.transition.replace("A", "");
-					transitions.add(i, copy);
-					anyAdded = true;
-					i++;
-				}
-				if (!anyAdded) {
-					System.err.println("Warning: Invalid A transition with no states in " + trans.getErrored() + " line: " + trans.lineNumber);
-				}
-				i--;
-			}
-		}
-	}
-
-	private void applyUTransitions(List<GeneralTransition> transitions) {
-		for (int i = 0; i < transitions.size(); i++) {
-			GeneralTransition trans = transitions.get(i);
-			if (trans.transition.contains("U")) {
-				trans.saveTransformation();
-				trans.transition = trans.transition.replace("U", "");
-				trans.write = trans.read;
-			}
-		}
+		applyModulesTo(modules, transitions, new ArrayList<>());
 	}
 
 	private void applyModulesTo(Map<String, Module> modules, List<GeneralTransition> transitions, List<String> notAllowed) {
@@ -566,13 +414,202 @@ public class Assembler {
 		}
 	}
 
-	private void applyModules(Map<String, Module> modules, List<GeneralTransition> transitions) {
-		for (Module m : modules.values()) {
-			List<String> notAllowed = new ArrayList<>();
-			notAllowed.add(m.name);
-			applyModulesTo(modules, m.transitions, notAllowed);
+	private void applyStarTransitions() {
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			ParsedTO operation = removeTransitionOperator(trans.transition, '*', trans);
+			if (operation.found) {
+				trans.saveTransformation();
+				int count = Integer.parseInt(operation.content);
+				trans.transition = operation.removed;
+				i++;
+				for (int j = 1; j < count - 1; j++) {
+					GeneralTransition copy = trans.copy();
+					copy.destination = trans.source + "$part" + j;
+					copy.source = trans.source + "$part" + (j - 1);
+					transitions.add(i, copy);
+					i++;
+				}
+
+				GeneralTransition copy = trans.copy();
+				copy.destination = trans.destination;
+				copy.source = trans.source + "$part" + (count - 2);
+				transitions.add(i, copy);
+				i++;
+
+				trans.destination = trans.source + "$part" + 0;
+				i--;
+			}
 		}
-		applyModulesTo(modules, transitions, new ArrayList<>());
+	}
+
+	private void applyATransitions(Set<String> possibleSymbols) {
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			ParsedTO operation = removeTransitionOperator(trans.transition, 'A', trans);
+			if (operation.found) {
+				transitions.remove(i);
+				Set<String> inUse = new HashSet<>();
+				for (GeneralTransition t : transitions) {
+					if (t.source.equals(trans.source)) {
+						inUse.add(t.read);
+					}
+				}
+
+				boolean anyAdded = false;
+				for (String s : possibleSymbols) {
+					if (inUse.contains(s)) continue;
+					GeneralTransition copy = trans.copy();
+					copy.read = s;
+					copy.transition = operation.removed;
+					transitions.add(i, copy);
+					anyAdded = true;
+					i++;
+				}
+				if (!anyAdded) {
+					System.err.println("Warning: Invalid A transition with no states in " + trans.getErrored() + " line: " + trans.lineNumber);
+				}
+				i--;
+			}
+		}
+	}
+
+	private void applyUTransitions() {
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			ParsedTO operation = removeTransitionOperator(trans.transition, 'U', trans);
+			if (operation.found) {
+				trans.saveTransformation();
+				trans.transition = operation.removed;
+				trans.write = trans.read;
+			}
+		}
+	}
+
+	private void applyMDTransitions() {
+		Set<String> statesToDestroy = new HashSet<>();
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			ParsedTO operation = removeTransitionOperator(trans.transition, 'M', trans);
+			if (operation.found) {
+				if (operation.content == null) {
+					throw new RuntimeException("Invalid M transition with no arguments " + trans.getErrored() + " line: " + trans.lineNumber);
+				}
+				ParsedTO checkD = removeTransitionOperator(trans.transition, 'D', trans);
+				if (checkD.found && operation.content.equals(checkD.content)) {
+					throw new RuntimeException("M and D transition for the same name in " + trans.getErrored() + " line: " + trans.lineNumber);
+				}
+				statesToDestroy.addAll(applyDynamicMD(trans, operation.content, trans.read));
+
+				//Do this afterwards to prevent applyDynamicMD from accidentally making a loop
+				trans.saveTransformation();
+				trans.destination = trans.destination + "$store" + operation.content + "$" + trans.read;
+				trans.transition = operation.removed;
+			}
+		}
+
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			ParsedTO operation = removeTransitionOperator(trans.transition, 'D', trans);
+			if (operation.found) {
+				trans.saveTransformation();
+				trans.transition = operation.removed;
+			}
+		}
+	}
+
+	private Set<String> applyDynamicMD(GeneralTransition trans, String name, String value) {
+		Set<String> statesToDestroy = new HashSet<>();
+		statesToDestroy.add(trans.destination);
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition t = transitions.get(i);
+			if (t.source.equals(trans.destination)) {
+
+				ParsedTO operationM = removeTransitionOperator(t.transition, 'M', trans);
+				ParsedTO operationD = removeTransitionOperator(t.transition, 'D', trans);
+				System.out.println("Modify source " + t + " " + name + " " + value);
+
+				if ((!operationM.found || !name.equals(operationM.content)) && (!operationD.found || !name.equals(operationD.content))) {
+					//transition needs to store value memory from name
+					GeneralTransition copy = t.copy();
+					copy.source = trans.destination + "$store" + name + "$" + value;
+					transitions.add(i + 1, copy);
+					if (copy.read.equals(name) || copy.write.equals(name)) {
+						if (copy.read.equals(name)) copy.read = value;
+						if (copy.write.equals(name)) copy.write = value;
+					}
+					String nextDest = copy.destination + "$store" + name + "$" + value;
+					boolean exists = false;
+					for (int j = 0; j < transitions.size(); j++) {
+						GeneralTransition t2 = transitions.get(j);
+						if (t2.source.equals(nextDest)) {
+							exists = true;
+							break;
+						}
+					}
+					if (!exists) statesToDestroy.addAll(applyDynamicMD(copy, name, value));
+
+					copy.saveTransformation();
+					copy.destination = nextDest;
+				} else {
+					GeneralTransition copy = t.copy();
+					copy.source = trans.destination + "$store" + name + "$" + value;
+					if (copy.read.equals(name) || copy.write.equals(name)) {
+						if (copy.read.equals(name)) copy.read = value;
+						if (copy.write.equals(name)) copy.write = value;
+					}
+					transitions.add(i + 1, copy);
+				}
+			}
+		}
+		return statesToDestroy;
+
+	}
+
+	private void optimize() {
+		//optimize away AUS transitions
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			if (trans.read.equals(trans.write) && trans.transition.equals("S")) {
+				boolean others = false;
+				for (GeneralTransition t : transitions) {
+					if (t.source.equals(trans.source) && !(t.read.equals(t.write) && t.transition.equals("S"))) {
+						others = true;
+						break;
+					}
+				}
+				if (!others) {
+					if (trans.source.equals(outputGraph.initialState)) {
+						outputGraph.initialState = trans.destination;
+					}
+					System.out.println("Removing: " + trans.getErrored());
+					transitions.remove(i);
+					i--;
+					for (GeneralTransition t : transitions) {
+						if (t.destination.equals(trans.source)) {
+							t.saveTransformation();
+							t.destination = trans.destination;
+						}
+					}
+				}
+			}
+		}
+		//remove unreachable states
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			boolean seen = outputGraph.initialState.equals(trans.source);
+			if (!seen) for (GeneralTransition t : transitions) {
+				if (t == trans) continue;
+				if (t.destination.equals(trans.source)) {
+					seen = true;
+					break;
+				}
+			}
+			if (!seen) {
+				transitions.remove(i);
+				i--;
+			}
+		}
 	}
 
 	public static class Module {
@@ -586,6 +623,57 @@ public class Assembler {
 
 		}
 
+	}
+
+	private static ParsedTO removeTransitionOperator(String transition, char operator, GeneralTransition line) {
+		String removed = "";
+		String content = null;
+		boolean found = false;
+
+		boolean inTarget = false;
+		boolean inParentheses = false;
+		for (int i = 0; i < transition.length(); i++) {
+			if (transition.charAt(i) == '(') {
+				if (inParentheses) {
+					throw new RuntimeException("No nested parentheses in transitions " + line.getErrored() + " line: " + line.lineNumber);
+				} else {
+					inParentheses = true;
+				}
+				if (!inTarget) {
+					removed += transition.charAt(i);
+				}
+			} else if (transition.charAt(i) == ')') {
+				if (!inParentheses) {
+					throw new RuntimeException("Extra closing parentheses in transition " + line.getErrored() + " line: " + line.lineNumber);
+				} else {
+					inParentheses = false;
+				}
+				if (!inTarget) {
+					removed += transition.charAt(i);
+				} else {
+					inTarget = false;
+				}
+			} else if (inTarget && inParentheses) {
+				if (content == null) content = "";
+				content += transition.charAt(i);
+			} else if (inParentheses) {
+				removed += transition.charAt(i);
+			} else if (transition.charAt(i) == operator) {
+				if (found) {
+					throw new RuntimeException("Duplicate " + operator + " in transition " + line.getErrored() + " line: " + line.lineNumber);
+				}
+				inTarget = true;
+				found = true;
+			} else {
+				if (inTarget) inTarget = false;
+				removed += transition.charAt(i);
+			}
+
+		}
+		return new ParsedTO(removed, operator, content, found);
+	}
+
+	private record ParsedTO(String removed, char operator, String content, boolean found) {
 	}
 
 	public static class GeneralTransition {
