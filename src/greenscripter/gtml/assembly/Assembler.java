@@ -507,9 +507,9 @@ public class Assembler {
 				String append = "$store" + variable + "$" + value;
 
 				TPair set = getMDSet(trans, operation.content.get(0));
-				System.out.println(trans.getErrored());
-				System.out.println(set);
-				for (GeneralTransition t : set.source) {
+				for (int j = 0; j < transitions.size(); j++) {
+					GeneralTransition t = transitions.get(j);
+					if (!set.source.contains(t)) continue;
 					GeneralTransition copy = t.copy();
 					copy.source += append;
 					copy.destination += append;
@@ -520,10 +520,14 @@ public class Assembler {
 						copy.write = value;
 					}
 					if (!checkExists(copy)) {
-						transitions.add(copy);
+						transitions.add(j + 1, copy);
+						j++;
 					}
 				}
-				for (GeneralTransition t : set.dest) {
+
+				for (int j = 0; j < transitions.size(); j++) {
+					GeneralTransition t = transitions.get(j);
+					if (!set.dest.contains(t)) continue;
 					GeneralTransition copy = t.copy();
 					copy.source += append;
 					if (copy.read.equals(variable)) {
@@ -533,7 +537,8 @@ public class Assembler {
 						copy.write = value;
 					}
 					if (!checkExists(copy)) {
-						transitions.add(copy);
+						transitions.add(j + 1, copy);
+						j++;
 					}
 				}
 				trans.saveTransformation();

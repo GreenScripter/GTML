@@ -14,7 +14,7 @@ public class Simulator {
 	public static void main(String[] args) throws IOException {
 		long compileStart = System.currentTimeMillis();
 
-		Assembler assembler = new Assembler(new File("tempmachine2.gtma"));
+		Assembler assembler = new Assembler(new File("tempmachine.gtma"));
 		MachineGraph graph = assembler.outputGraph;
 		//		MachineGraph graph = new MachineGraph(new File("outputtestmangled.gtm"));
 		graph.write(new File("outputtest.gtm"), true);
