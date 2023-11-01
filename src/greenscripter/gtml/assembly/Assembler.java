@@ -458,7 +458,7 @@ public class Assembler {
 
 				boolean anyAdded = false;
 				for (String s : possibleSymbols) {
-					if (inUse.contains(s)) continue;
+					//					if (inUse.contains(s)) continue;
 					GeneralTransition copy = trans.copy();
 					copy.read = s;
 					copy.transition = operation.removed;
@@ -487,63 +487,102 @@ public class Assembler {
 	}
 
 	private void applyMDTransitions() {
+		Set<GeneralTransition> conditionals = new HashSet<>();
 		for (int i = 0; i < transitions.size(); i++) {
 			GeneralTransition trans = transitions.get(i);
+			ParsedTO operation = removeTransitionOperator(trans.transition, 'O', trans);
+			if (operation.found) {
+				conditionals.add(trans);
+			}
+		}
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			if (trans.mVisited) continue;
+			trans.mVisited = true;
+			boolean expand = false;
+			String variable = "";
+			String value = "";
+			String append = "";
 			ParsedTO operation = removeTransitionOperator(trans.transition, 'M', trans);
-			if (operation.found && !trans.mVisited) {
+			if (operation.found) {
 				if (operation.content.isEmpty()) {
 					throw new RuntimeException("Invalid M transition with no arguments " + trans.getErrored() + " line: " + trans.lineNumber);
 				}
 				if (operation.content.size() > 1) {
 					throw new RuntimeException("Invalid M transition with too many arguments " + trans.getErrored() + " line: " + trans.lineNumber);
 				}
-				ParsedTO checkD = removeTransitionOperator(trans.transition, 'D', trans);
-				if (checkD.found && checkD.content.contains(operation.content.get(0))) {
+				ParsedTO check = removeTransitionOperator(trans.transition, 'D', trans);
+				if (check.found && check.content.contains(operation.content.get(0))) {
 					throw new RuntimeException("M and D transition for the same name in " + trans.getErrored() + " line: " + trans.lineNumber);
 				}
-
-				String variable = operation.content.get(0);
-				String value = trans.read;
-				String append = "$store" + variable + "$" + value;
-
-				TPair set = getMDSet(trans, operation.content.get(0));
+				check = removeTransitionOperator(trans.transition, 'I', trans);
+				if (check.found && check.content.contains(operation.content.get(0))) {
+					throw new RuntimeException("M and I transition for the same name in " + trans.getErrored() + " line: " + trans.lineNumber);
+				}
+				variable = operation.content.get(0);
+				value = trans.read;
+				append = "$store" + variable + "$" + value;
+				expand = true;
+			}
+			operation = removeTransitionOperator(trans.transition, 'I', trans);
+			if (operation.found) {
+				if (operation.content.size() < 2) {
+					throw new RuntimeException("Invalid I transition with too few arguments " + trans.getErrored() + " line: " + trans.lineNumber);
+				}
+				if (operation.content.size() > 2) {
+					throw new RuntimeException("Invalid I transition with too many arguments " + trans.getErrored() + " line: " + trans.lineNumber);
+				}
+				ParsedTO check = removeTransitionOperator(trans.transition, 'D', trans);
+				if (check.found && check.content.contains(operation.content.get(0))) {
+					throw new RuntimeException("I and D transition for the same name in " + trans.getErrored() + " line: " + trans.lineNumber);
+				}
+				check = removeTransitionOperator(trans.transition, 'M', trans);
+				if (check.found && check.content.contains(operation.content.get(0))) {
+					throw new RuntimeException("I and M transition for the same name in " + trans.getErrored() + " line: " + trans.lineNumber);
+				}
+				variable = operation.content.get(0);
+				value = operation.content.get(1);
+				append = "$store" + variable + "$" + value;
+				expand = true;
+			}
+			if (expand) {
+				TPair set = getMDSet(trans, variable, value);
 				for (int j = 0; j < transitions.size(); j++) {
 					GeneralTransition t = transitions.get(j);
-					if (!set.source.contains(t)) continue;
-					GeneralTransition copy = t.copy();
-					copy.source += append;
-					copy.destination += append;
-					if (copy.read.equals(variable)) {
-						copy.read = value;
-					}
-					if (copy.write.equals(variable)) {
-						copy.write = value;
-					}
-					if (!checkExists(copy)) {
-						transitions.add(j + 1, copy);
-						j++;
+
+					if (set.dest.contains(t)) {
+						GeneralTransition copy = t.copy();
+						copy.source += append;
+						if (copy.read.equals(variable)) {
+							copy.read = value;
+						}
+						if (copy.write.equals(variable)) {
+							copy.write = value;
+						}
+						if (!checkExists(copy, variable, value)) {
+							transitions.add(j + 1, copy);
+							j++;
+						}
+					} 
+					if (set.source.contains(t)) {
+						GeneralTransition copy = t.copy();
+						copy.source += append;
+						copy.destination += append;
+						if (copy.read.equals(variable)) {
+							copy.read = value;
+						}
+						if (copy.write.equals(variable)) {
+							copy.write = value;
+						}
+						if (!checkExists(copy, variable, value)) {
+							transitions.add(j + 1, copy);
+							j++;
+						}
 					}
 				}
 
-				for (int j = 0; j < transitions.size(); j++) {
-					GeneralTransition t = transitions.get(j);
-					if (!set.dest.contains(t)) continue;
-					GeneralTransition copy = t.copy();
-					copy.source += append;
-					if (copy.read.equals(variable)) {
-						copy.read = value;
-					}
-					if (copy.write.equals(variable)) {
-						copy.write = value;
-					}
-					if (!checkExists(copy)) {
-						transitions.add(j + 1, copy);
-						j++;
-					}
-				}
 				trans.saveTransformation();
 				trans.destination += append;
-
 			}
 		}
 
@@ -559,20 +598,39 @@ public class Assembler {
 				trans.saveTransformation();
 				trans.transition = operation.removed;
 			}
+			operation = removeTransitionOperator(trans.transition, 'I', trans);
+			if (operation.found) {
+				trans.saveTransformation();
+				trans.transition = operation.removed;
+			}
+			operation = removeTransitionOperator(trans.transition, 'O', trans);
+			if (operation.found) {
+				trans.saveTransformation();
+				trans.transition = operation.removed;
+			}
+			if (conditionals.contains(trans)) {
+				transitions.remove(i);
+				i--;
+			}
 		}
 	}
 
-	private boolean checkExists(GeneralTransition trans) {
+	private boolean checkExists(GeneralTransition trans, String name, String value) {
 		for (int i = 0; i < transitions.size(); i++) {
 			GeneralTransition t = transitions.get(i);
 			if (t.source.equals(trans.source) && t.read.equals(trans.read)) {
+				ParsedTO operation = removeTransitionOperator(trans.transition, 'O', trans);
+				if (operation.found && operation.content.size() == 2 && (!operation.content.get(0).equals(name) || !operation.content.get(1).equals(value))) {
+					continue;
+				}
 				return true;
 			}
 		}
 		return false;
 	}
 
-	private TPair getMDSet(GeneralTransition trans, String name) {
+	private TPair getMDSet(GeneralTransition trans, String name, String value) {
+		Set<GeneralTransition> allSeen = new HashSet<>();
 		Set<GeneralTransition> resultDest = new HashSet<>();
 		Set<GeneralTransition> resultSource = new HashSet<>();
 		Set<GeneralTransition> next = new HashSet<>();
@@ -583,16 +641,23 @@ public class Assembler {
 			it.remove();
 			for (int i = 0; i < transitions.size(); i++) {
 				GeneralTransition t = transitions.get(i);
-				if (t.source.equals(current.destination) && !resultDest.contains(t)) {
+				if (t.source.equals(current.destination) && !allSeen.contains(t)) {
 					ParsedTO operation = removeTransitionOperator(t.transition, 'D', t);
 					if (!operation.found || (operation.content != null && !operation.content.contains(name))) {
 						operation = removeTransitionOperator(t.transition, 'M', t);
 						if (!operation.found || (operation.content != null && !operation.content.contains(name))) {
-							next.add(t);
-							resultSource.add(t);
+							operation = removeTransitionOperator(t.transition, 'I', t);
+							if (!operation.found || (operation.content.size() == 1 && !operation.content.get(0).equals(name))) {
+								next.add(t);
+								resultSource.add(t);
+							}
 						}
 					}
-					resultDest.add(t);
+					operation = removeTransitionOperator(t.transition, 'O', t);
+					if (!operation.found || (operation.content.size() == 2 && (!operation.content.get(0).equals(name) || operation.content.get(1).equals(value)))) {
+						resultDest.add(t);
+					}
+					allSeen.add(t);
 				}
 			}
 		}
@@ -740,7 +805,7 @@ public class Assembler {
 			copy.read = read;
 			copy.write = write;
 			copy.unions.putAll(this.unions);
-			copy.mVisited = mVisited;
+//			copy.mVisited = mVisited;
 			copy.parent = this;
 			copy.lineNumber = lineNumber;
 			return copy;
