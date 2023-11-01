@@ -5,6 +5,7 @@ import static greenscripter.gtml.simulator.MachineGraph.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -150,15 +151,14 @@ public class Assembler {
 				if (parts.size() >= 3) {
 					String source = parts.get(0);
 					String controlCode = parts.get(1);
-					boolean unchanged = controlCode.contains("U");
-					boolean previous = controlCode.contains("P");
-					boolean any = controlCode.contains("A");
-					if (unchanged && previous) throw new RuntimeException("Invalid control code " + controlCode + " line: " + lineNumber);
 
 					GeneralTransition trans = new GeneralTransition();
 					trans.lineNumber = lineNumber;
 					trans.source = source;
 					trans.transition = controlCode;
+
+					boolean unchanged = removeTransitionOperator(controlCode, 'U', trans).found;
+					boolean any = removeTransitionOperator(controlCode, 'A', trans).found;
 
 					//read and write parts
 					int part = 2;
@@ -166,7 +166,7 @@ public class Assembler {
 						trans.read = parts.get(part);
 						part++;
 					}
-					if (!(unchanged || previous)) {
+					if (!unchanged) {
 						if (parts.size() <= part) throw new RuntimeException("Missing components in " + line + " line: " + lineNumber);
 						trans.write = parts.get(part);
 						part++;
@@ -420,7 +420,7 @@ public class Assembler {
 			ParsedTO operation = removeTransitionOperator(trans.transition, '*', trans);
 			if (operation.found) {
 				trans.saveTransformation();
-				int count = Integer.parseInt(operation.content);
+				int count = Integer.parseInt(operation.content.get(0));
 				trans.transition = operation.removed;
 				i++;
 				for (int j = 1; j < count - 1; j++) {
@@ -487,24 +487,58 @@ public class Assembler {
 	}
 
 	private void applyMDTransitions() {
-		Set<String> statesToDestroy = new HashSet<>();
 		for (int i = 0; i < transitions.size(); i++) {
 			GeneralTransition trans = transitions.get(i);
 			ParsedTO operation = removeTransitionOperator(trans.transition, 'M', trans);
-			if (operation.found) {
-				if (operation.content == null) {
+			if (operation.found && !trans.mVisited) {
+				if (operation.content.isEmpty()) {
 					throw new RuntimeException("Invalid M transition with no arguments " + trans.getErrored() + " line: " + trans.lineNumber);
 				}
+				if (operation.content.size() > 1) {
+					throw new RuntimeException("Invalid M transition with too many arguments " + trans.getErrored() + " line: " + trans.lineNumber);
+				}
 				ParsedTO checkD = removeTransitionOperator(trans.transition, 'D', trans);
-				if (checkD.found && operation.content.equals(checkD.content)) {
+				if (checkD.found && checkD.content.contains(operation.content.get(0))) {
 					throw new RuntimeException("M and D transition for the same name in " + trans.getErrored() + " line: " + trans.lineNumber);
 				}
-				statesToDestroy.addAll(applyDynamicMD(trans, operation.content, trans.read));
 
-				//Do this afterwards to prevent applyDynamicMD from accidentally making a loop
+				String variable = operation.content.get(0);
+				String value = trans.read;
+				String append = "$store" + variable + "$" + value;
+
+				TPair set = getMDSet(trans, operation.content.get(0));
+				System.out.println(trans.getErrored());
+				System.out.println(set);
+				for (GeneralTransition t : set.source) {
+					GeneralTransition copy = t.copy();
+					copy.source += append;
+					copy.destination += append;
+					if (copy.read.equals(variable)) {
+						copy.read = value;
+					}
+					if (copy.write.equals(variable)) {
+						copy.write = value;
+					}
+					if (!checkExists(copy)) {
+						transitions.add(copy);
+					}
+				}
+				for (GeneralTransition t : set.dest) {
+					GeneralTransition copy = t.copy();
+					copy.source += append;
+					if (copy.read.equals(variable)) {
+						copy.read = value;
+					}
+					if (copy.write.equals(variable)) {
+						copy.write = value;
+					}
+					if (!checkExists(copy)) {
+						transitions.add(copy);
+					}
+				}
 				trans.saveTransformation();
-				trans.destination = trans.destination + "$store" + operation.content + "$" + trans.read;
-				trans.transition = operation.removed;
+				trans.destination += append;
+
 			}
 		}
 
@@ -515,54 +549,53 @@ public class Assembler {
 				trans.saveTransformation();
 				trans.transition = operation.removed;
 			}
+			operation = removeTransitionOperator(trans.transition, 'M', trans);
+			if (operation.found) {
+				trans.saveTransformation();
+				trans.transition = operation.removed;
+			}
 		}
 	}
 
-	private Set<String> applyDynamicMD(GeneralTransition trans, String name, String value) {
-		Set<String> statesToDestroy = new HashSet<>();
-		statesToDestroy.add(trans.destination);
+	private boolean checkExists(GeneralTransition trans) {
 		for (int i = 0; i < transitions.size(); i++) {
 			GeneralTransition t = transitions.get(i);
-			if (t.source.equals(trans.destination)) {
+			if (t.source.equals(trans.source) && t.read.equals(trans.read)) {
+				return true;
+			}
+		}
+		return false;
+	}
 
-				ParsedTO operationM = removeTransitionOperator(t.transition, 'M', trans);
-				ParsedTO operationD = removeTransitionOperator(t.transition, 'D', trans);
-				System.out.println("Modify source " + t + " " + name + " " + value);
-
-				if ((!operationM.found || !name.equals(operationM.content)) && (!operationD.found || !name.equals(operationD.content))) {
-					//transition needs to store value memory from name
-					GeneralTransition copy = t.copy();
-					copy.source = trans.destination + "$store" + name + "$" + value;
-					transitions.add(i + 1, copy);
-					if (copy.read.equals(name) || copy.write.equals(name)) {
-						if (copy.read.equals(name)) copy.read = value;
-						if (copy.write.equals(name)) copy.write = value;
-					}
-					String nextDest = copy.destination + "$store" + name + "$" + value;
-					boolean exists = false;
-					for (int j = 0; j < transitions.size(); j++) {
-						GeneralTransition t2 = transitions.get(j);
-						if (t2.source.equals(nextDest)) {
-							exists = true;
-							break;
+	private TPair getMDSet(GeneralTransition trans, String name) {
+		Set<GeneralTransition> resultDest = new HashSet<>();
+		Set<GeneralTransition> resultSource = new HashSet<>();
+		Set<GeneralTransition> next = new HashSet<>();
+		next.add(trans);
+		while (!next.isEmpty()) {
+			Iterator<GeneralTransition> it = next.iterator();
+			GeneralTransition current = it.next();
+			it.remove();
+			for (int i = 0; i < transitions.size(); i++) {
+				GeneralTransition t = transitions.get(i);
+				if (t.source.equals(current.destination) && !resultDest.contains(t)) {
+					ParsedTO operation = removeTransitionOperator(t.transition, 'D', t);
+					if (!operation.found || (operation.content != null && !operation.content.contains(name))) {
+						operation = removeTransitionOperator(t.transition, 'M', t);
+						if (!operation.found || (operation.content != null && !operation.content.contains(name))) {
+							next.add(t);
+							resultSource.add(t);
 						}
 					}
-					if (!exists) statesToDestroy.addAll(applyDynamicMD(copy, name, value));
-
-					copy.saveTransformation();
-					copy.destination = nextDest;
-				} else {
-					GeneralTransition copy = t.copy();
-					copy.source = trans.destination + "$store" + name + "$" + value;
-					if (copy.read.equals(name) || copy.write.equals(name)) {
-						if (copy.read.equals(name)) copy.read = value;
-						if (copy.write.equals(name)) copy.write = value;
-					}
-					transitions.add(i + 1, copy);
+					resultDest.add(t);
 				}
 			}
 		}
-		return statesToDestroy;
+		resultDest.removeAll(resultSource);
+		return new TPair(resultDest, resultSource);
+	}
+
+	record TPair(Set<GeneralTransition> dest, Set<GeneralTransition> source) {
 
 	}
 
@@ -595,19 +628,24 @@ public class Assembler {
 			}
 		}
 		//remove unreachable states
-		for (int i = 0; i < transitions.size(); i++) {
-			GeneralTransition trans = transitions.get(i);
-			boolean seen = outputGraph.initialState.equals(trans.source);
-			if (!seen) for (GeneralTransition t : transitions) {
-				if (t == trans) continue;
-				if (t.destination.equals(trans.source)) {
-					seen = true;
-					break;
+		boolean anyRemoved = true;
+		while (anyRemoved) {
+			anyRemoved = false;
+			for (int i = 0; i < transitions.size(); i++) {
+				GeneralTransition trans = transitions.get(i);
+				boolean seen = outputGraph.initialState.equals(trans.source);
+				if (!seen) for (GeneralTransition t : transitions) {
+					if (t == trans) continue;
+					if (t.destination.equals(trans.source)) {
+						seen = true;
+						break;
+					}
 				}
-			}
-			if (!seen) {
-				transitions.remove(i);
-				i--;
+				if (!seen) {
+					anyRemoved = true;
+					transitions.remove(i);
+					i--;
+				}
 			}
 		}
 	}
@@ -627,7 +665,8 @@ public class Assembler {
 
 	private static ParsedTO removeTransitionOperator(String transition, char operator, GeneralTransition line) {
 		String removed = "";
-		String content = null;
+		List<String> content = new ArrayList<>();
+		String contentSegment = "";
 		boolean found = false;
 
 		boolean inTarget = false;
@@ -651,11 +690,11 @@ public class Assembler {
 				if (!inTarget) {
 					removed += transition.charAt(i);
 				} else {
-					inTarget = false;
+					content.add(contentSegment);
+					contentSegment = "";
 				}
 			} else if (inTarget && inParentheses) {
-				if (content == null) content = "";
-				content += transition.charAt(i);
+				contentSegment += transition.charAt(i);
 			} else if (inParentheses) {
 				removed += transition.charAt(i);
 			} else if (transition.charAt(i) == operator) {
@@ -673,7 +712,7 @@ public class Assembler {
 		return new ParsedTO(removed, operator, content, found);
 	}
 
-	private record ParsedTO(String removed, char operator, String content, boolean found) {
+	private record ParsedTO(String removed, char operator, List<String> content, boolean found) {
 	}
 
 	public static class GeneralTransition {
@@ -686,6 +725,7 @@ public class Assembler {
 		Map<String, Set<String>> unions = new HashMap<>();
 		GeneralTransition parent;
 		int lineNumber;
+		boolean mVisited = false;
 
 		public GeneralTransition copy() {
 			GeneralTransition copy = new GeneralTransition();
@@ -695,6 +735,7 @@ public class Assembler {
 			copy.read = read;
 			copy.write = write;
 			copy.unions.putAll(this.unions);
+			copy.mVisited = mVisited;
 			copy.parent = this;
 			copy.lineNumber = lineNumber;
 			return copy;

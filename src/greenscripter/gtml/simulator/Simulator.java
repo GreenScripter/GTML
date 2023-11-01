@@ -14,15 +14,14 @@ public class Simulator {
 	public static void main(String[] args) throws IOException {
 		long compileStart = System.currentTimeMillis();
 
-		Assembler assembler = new Assembler(new File("tempmachine.gtma"));
+		Assembler assembler = new Assembler(new File("tempmachine2.gtma"));
 		MachineGraph graph = assembler.outputGraph;
 		//		MachineGraph graph = new MachineGraph(new File("outputtestmangled.gtm"));
 		graph.write(new File("outputtest.gtm"), true);
 		System.out.println(graph.initialState);
 		System.out.println(graph.acceptingStates);
-		System.out.println(graph.transitions);
 		Simulator simulator = new Simulator(graph);
-		simulator.loadTape("bbaaaaaaaaaaaa");
+		simulator.loadTape("abababbaaacbabababbbababaab");
 		long start = System.currentTimeMillis();
 
 		while (!simulator.isTerminated()) {
