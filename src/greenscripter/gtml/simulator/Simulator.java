@@ -34,7 +34,7 @@ public class Simulator {
 		System.out.println("Compile time: " + (start - compileStart) + " ms.");
 		System.out.println("Runtime: " + (System.currentTimeMillis() - start) + " ms.");
 		graph.mangleNames();
-		graph.write(new File("outputtestmangled.gtm"), false);
+		graph.write(new File("outputtestmangled.gtm"), true);
 
 	}
 
