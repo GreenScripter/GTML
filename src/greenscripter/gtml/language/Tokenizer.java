@@ -180,7 +180,7 @@ public class Tokenizer {
 			return true;
 		}
 
-		public Token peek() {
+		public Token get() {
 			if (at < start || at >= end) {
 				return null;
 			}
@@ -210,6 +210,18 @@ public class Tokenizer {
 			return this;
 		}
 
+		public void fastForwardTo(TokenIterator other) {
+			if (Tokenizer.this != other.getParent()) {
+				throw new IllegalArgumentException("Iterators have different parents.");
+			}
+			if (other.at > end) {
+				throw new IndexOutOfBoundsException(at);
+			}
+			if (other.at > at) {
+				at = other.at;
+			}
+		}
+
 		public String toString() {
 			return tokens.subList(start + 1, end).toString();
 		}
@@ -222,6 +234,9 @@ public class Tokenizer {
 			return tokens.get(end);
 		}
 
+		private Tokenizer getParent() {
+			return Tokenizer.this;
+		}
 	}
 
 	public static class Token {
@@ -279,12 +294,28 @@ public class Tokenizer {
 		}
 
 		public boolean isName() {
+			if (token.equals("while")) return false;
+			if (token.equals("if")) return false;
+			if (token.equals("else")) return false;
+			if (token.equals("return")) return false;
+			if (token.equals("func")) return false;
 			return token.matches("[a-zA-Z][a-zA-Z0-9_]*");
 		}
 
 		public Token forceName() {
 			if (!this.isName()) {
 				throw new TokenException("Invalid identifier " + token, this);
+			}
+			return this;
+		}
+
+		public boolean isSameLine(Token other) {
+			return other.line != this.line;
+		}
+
+		public Token forceSameLine(Token other) {
+			if (isSameLine(other)) {
+				throw new TokenException("Tokens must be on the same line " + "\n" + other.getErrored(), this);
 			}
 			return this;
 		}
