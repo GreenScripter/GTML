@@ -166,12 +166,12 @@ public class Tokenizer {
 			sb.append(line);
 			sb.append(": ");
 			sb.append(lineContent);
-			sb.append(": ");
-			sb.append(token);
 			sb.append("\n");
-			int prefix = ("line " + line).length() + 2;
+			int prefix = ("line " + line + ": ").length();
 			for (int i = 0; i < prefix + lineContent.length(); i++) {
 				if (i - prefix == pos) {
+					sb.append("^");
+				} else if (i - prefix > pos && i - prefix < pos + token.length()) {
 					sb.append("^");
 				} else {
 					sb.append(" ");
