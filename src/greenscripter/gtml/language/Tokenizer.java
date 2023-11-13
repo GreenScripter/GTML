@@ -13,7 +13,10 @@ public class Tokenizer {
 	List<Token> tokens = new ArrayList<>();
 
 	public static void main(String[] args) throws IOException {
-		new Tokenizer(new File("testcode.gtml"));
+		Tokenizer t = new Tokenizer(new File("testcode.gtml"));
+		for (Token s : t.tokens) {
+			System.out.println(s.getErrored());
+		}
 	}
 
 	public Tokenizer(File file) throws IOException {
@@ -79,60 +82,144 @@ public class Tokenizer {
 						}
 					} else if (line.charAt(i) == '"') { // Double Quotes
 						inDoubleQuotes = true;
-						tokens.add(part);
+						if (!part.is("")) tokens.add(part);
 						part = new Token("", line, lineNumber, i + 1);
 						tokens.add(new Token("\"", line, lineNumber, i));
 					} else if (line.charAt(i) == '\'') { // Single Quotes
 						inSingleQuotes = true;
-						tokens.add(part);
+						if (!part.is("")) tokens.add(part);
 						part = new Token("", line, lineNumber, i + 1);
 						tokens.add(new Token("\'", line, lineNumber, i));
 					} else if (line.charAt(i) == '/' && i + 1 < line.length() && line.charAt(i + 1) == '*') {
 						inComment = true;
-						tokens.add(part);
+						if (!part.is("")) tokens.add(part);
 						part = new Token("", line, lineNumber, i + 1);
 					} else if (line.charAt(i) == '/' && i + 1 < line.length() && line.charAt(i + 1) == '/') { // Single Line Comments
-						tokens.add(part);
+						if (!part.is("")) tokens.add(part);
 						part = new Token("", line, lineNumber, i + 1);
 						break;
 					} else if (line.charAt(i) == '(') { // Split on characters
-						tokens.add(part);
+						if (!part.is("")) tokens.add(part);
 						part = new Token("", line, lineNumber, i + 1);
 						tokens.add(new Token("(", line, lineNumber, i));
 					} else if (line.charAt(i) == ')') {
-						tokens.add(part);
+						if (!part.is("")) tokens.add(part);
 						part = new Token("", line, lineNumber, i + 1);
 						tokens.add(new Token(")", line, lineNumber, i));
 					} else if (line.charAt(i) == '}') {
-						tokens.add(part);
+						if (!part.is("")) tokens.add(part);
 						part = new Token("", line, lineNumber, i + 1);
 						tokens.add(new Token("}", line, lineNumber, i));
 					} else if (line.charAt(i) == '{') {
-						tokens.add(part);
+						if (!part.is("")) tokens.add(part);
 						part = new Token("", line, lineNumber, i + 1);
 						tokens.add(new Token("{", line, lineNumber, i));
 					} else if (line.charAt(i) == '#') {
-						tokens.add(part);
+						if (!part.is("")) tokens.add(part);
 						part = new Token("", line, lineNumber, i + 1);
 						tokens.add(new Token("#", line, lineNumber, i));
 					} else if (line.charAt(i) == ',') {
-						tokens.add(part);
+						if (!part.is("")) tokens.add(part);
 						part = new Token("", line, lineNumber, i + 1);
 						tokens.add(new Token(",", line, lineNumber, i));
 					} else if (line.charAt(i) == ' ' || line.charAt(i) == '\t') { // Split on blanks
-						tokens.add(part);
+						if (!part.is("")) tokens.add(part);
 						part = new Token("", line, lineNumber, i + 1);
 					} else { // Normal Characters
 						part.token += line.charAt(i);
 					}
 				}
-				tokens.add(part);
+				if (!part.is("")) tokens.add(part);
 			}
 
 		}
-		tokens.removeIf(t -> t.token.isEmpty());
-		for (Token s : tokens) {
-			System.out.println(s.getErrored());
+	}
+
+	public TokenIterator getIterator() {
+		return new TokenIterator();
+	}
+
+	public class TokenIterator {
+
+		private int start;
+		private int end;
+		private int at;
+
+		public TokenIterator() {
+			this(0, tokens.size(), -1);
+		}
+
+		private TokenIterator(int start, int end, int at) {
+			this.start = start;
+			this.end = end;
+			this.at = at;
+		}
+
+		public Token next() {
+			if (at >= end - 1) {
+				return null;
+			}
+			at++;
+			Token token = tokens.get(at);
+			return token;
+		}
+
+		public Token throwingNext(String message) {
+			if (at >= end - 1) {
+				throw new TokenException(message, this.getEndErrorToken());
+			}
+			at++;
+			Token token = tokens.get(at);
+			return token;
+		}
+
+		public boolean hasNext() {
+			if (at >= end - 1) {
+				return false;
+			}
+			return true;
+		}
+
+		public Token peek() {
+			if (at < start || at >= end) {
+				return null;
+			}
+			Token token = tokens.get(at);
+			return token;
+		}
+
+		public Token previous() {
+			if (at < start) {
+				return null;
+			}
+			Token token = tokens.get(at);
+			at--;
+			return token;
+		}
+
+		public TokenIterator segment() {
+			return new TokenIterator(at, end, at);
+		}
+
+		public TokenIterator copy() {
+			return new TokenIterator(start, end, at);
+		}
+
+		public TokenIterator endAt(TokenIterator other) {
+			end = other.at;
+			return this;
+		}
+
+		public String toString() {
+			return tokens.subList(start + 1, end).toString();
+		}
+
+		public Token getEndErrorToken() {
+			if (tokens.isEmpty()) return new Token("No Such Token", "No Such Token", 0, 0);
+			if (end >= tokens.size()) {
+				return tokens.get(tokens.size() - 1);
+			}
+			return tokens.get(end);
 		}
 
 	}
@@ -178,6 +265,28 @@ public class Tokenizer {
 				}
 			}
 			return sb.toString();
+		}
+
+		public boolean is(String token) {
+			return this.token.equals(token);
+		}
+
+		public Token forceIs(String token) {
+			if (!this.is(token)) {
+				throw new TokenException("Unexpected " + this.token + ", expected " + token, this);
+			}
+			return this;
+		}
+
+		public boolean isName() {
+			return token.matches("[a-zA-Z][a-zA-Z0-9_]*");
+		}
+
+		public Token forceName() {
+			if (!this.isName()) {
+				throw new TokenException("Invalid identifier " + token, this);
+			}
+			return this;
 		}
 
 	}
