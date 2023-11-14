@@ -563,7 +563,7 @@ public class Assembler {
 							transitions.add(j + 1, copy);
 							j++;
 						}
-					} 
+					}
 					if (set.source.contains(t)) {
 						GeneralTransition copy = t.copy();
 						copy.source += append;
@@ -718,6 +718,26 @@ public class Assembler {
 				}
 			}
 		}
+
+		Set<String> seen = new HashSet<>();
+		seen.add(outputGraph.initialState);
+		anyRemoved = true;
+		while (anyRemoved) {
+			anyRemoved = false;
+			for (int i = 0; i < transitions.size(); i++) {
+				GeneralTransition trans = transitions.get(i);
+				if (seen.contains(trans.source)) {
+					anyRemoved |= seen.add(trans.destination);
+				}
+			}
+		}
+		for (int i = 0; i < transitions.size(); i++) {
+			GeneralTransition trans = transitions.get(i);
+			if (!seen.contains(trans.source)) {
+				transitions.remove(i);
+				i--;
+			}
+		}
 	}
 
 	public static class Module {
@@ -805,7 +825,7 @@ public class Assembler {
 			copy.read = read;
 			copy.write = write;
 			copy.unions.putAll(this.unions);
-//			copy.mVisited = mVisited;
+			//			copy.mVisited = mVisited;
 			copy.parent = this;
 			copy.lineNumber = lineNumber;
 			return copy;
