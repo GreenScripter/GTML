@@ -67,8 +67,8 @@ public class MachineToJFlap {
 				ids.put(s, id);
 				names.put(id, s);
 				id++;
-				output.write("<block id=\"" + ids.get(s) + "\" name=\"" + s + "\">");
-				output.write("<tag>" + s + "</tag>");
+				output.write("<block id=\"" + ids.get(s) + "\" name=\"" + s.replace("$", "-") + "\">");
+				output.write("<tag>" + s.replace("$", "-") + "</tag>");
 				output.write("<x>0.0</x>");
 				output.write("<y>0.0</y>");
 				if (graph.initialState.equals(s)) {
