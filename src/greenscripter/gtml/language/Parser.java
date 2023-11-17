@@ -16,6 +16,7 @@ public class Parser {
 		new Parser(tok);
 		TokenIterator it = tok.getIterator();
 		System.out.println(CodeBlock.indentedToString(new CodeBlock(it).toString()));
+		System.out.println(new CodeBlock(tok.getIterator()).write(true));
 	}
 
 	public Parser() {
@@ -122,6 +123,8 @@ public class Parser {
 			}
 			throw new TokenException("Unexpected content", next);
 		}
+
+		public abstract String write();
 	}
 
 	public static class CodeBlock extends Code {
@@ -163,6 +166,29 @@ public class Parser {
 			return result;
 		}
 
+		public String write() {
+			return write(false);
+		}
+
+		public String write(boolean direct) {
+			StringBuilder sb = new StringBuilder();
+			if (!direct) sb.append("{\n");
+			for (int i = 0; i < this.blocks.size(); i++) {
+				Code c = this.blocks.get(i);
+				String child = c.write();
+				sb.append(child);
+				if (i + 1 < this.blocks.size()) {
+					if (this.blocks.get(i + 1) instanceof ElseStatement) {
+						sb.append(" ");
+					} else {
+						sb.append("\n");
+					}
+				}
+			}
+			if (direct) return sb.toString();
+			return sb.toString().replace("\n", "\n\t") + "\n}";
+		}
+
 	}
 
 	public static class FunctionCall extends Code {
@@ -189,6 +215,21 @@ public class Parser {
 
 		public String toString() {
 			return "FunctionCall [name=" + name + " args=" + arguments + "]";
+		}
+
+		public String write() {
+			StringBuilder sb = new StringBuilder();
+			sb.append(name);
+			sb.append("(");
+			for (Code c : arguments) {
+				sb.append(c.write());
+				sb.append(", ");
+			}
+			if (!arguments.isEmpty()) {
+				sb.setLength(sb.length() - 2);
+			}
+			sb.append(")");
+			return sb.toString();
 		}
 	}
 
@@ -226,6 +267,10 @@ public class Parser {
 			return "CompilerInfo [name=" + name + ", contents=" + contents + "]";
 		}
 
+		public String write() {
+			return "#" + name + "(" + contents.stream().map(Token::toString).reduce((s1, s2) -> s1 + ", " + s2).orElse("") + ")";
+		}
+
 	}
 
 	public static class ControlStatement extends Code {
@@ -251,6 +296,10 @@ public class Parser {
 			return "ControlStatement [name=" + name + ", arguments=" + arguments + ", contents=" + contents + "]";
 		}
 
+		public String write() {
+			return name + " (" + arguments.write() + ") " + contents.write();
+		}
+
 	}
 
 	public static class ElseStatement extends Code {
@@ -267,6 +316,9 @@ public class Parser {
 			return "ElseStatement [" + "contents=" + contents + "]";
 		}
 
+		public String write() {
+			return "else " + contents.write();
+		}
 	}
 
 	public static class FunctionDefinition extends Code {
@@ -314,6 +366,36 @@ public class Parser {
 		public String toString() {
 			return "FunctionDefinition [name=" + name + " argTypes=" + argumentTypes + " args=" + arguments + " body=" + body + " returnTypes=" + returnTypes + "]";
 		}
+
+		public String write() {
+			StringBuilder sb = new StringBuilder();
+			sb.append("func ");
+			sb.append(name);
+			sb.append("(");
+			for (int i = 0; i < arguments.size(); i++) {
+				sb.append(argumentTypes.get(i));
+				sb.append(" ");
+				sb.append(arguments.get(i));
+				if (i + 1 < arguments.size()) {
+					sb.append(", ");
+				}
+			}
+			sb.append(")");
+			if (!returnTypes.isEmpty()) {
+				sb.append(" -> ");
+				for (int i = 0; i < returnTypes.size(); i++) {
+					sb.append(returnTypes.get(i));
+					if (i + 1 < returnTypes.size()) {
+						sb.append(", ");
+					}
+				}
+			}
+			sb.append(" ");
+
+			sb.append(body.write());
+
+			return sb.toString();
+		}
 	}
 
 	public static class VariableRead extends Code {
@@ -326,6 +408,10 @@ public class Parser {
 
 		public String toString() {
 			return "VariableRead [name=" + name + "]";
+		}
+
+		public String write() {
+			return name.toString();
 		}
 
 	}
@@ -395,10 +481,42 @@ public class Parser {
 				return "Destination [" + (type != null ? "type=" + type + ", " : "") + (name != null ? "name=" + name : "") + "]";
 			}
 
+			public String write() {
+				if (type != null)
+					return type + " " + name;
+				else
+					return name.toString();
+			}
+
 		}
 
 		public String toString() {
 			return "Assignment [names=" + names + ", sources=" + sources + "]";
+		}
+
+		public String write() {
+			StringBuilder sb = new StringBuilder();
+			for (int i = 0; i < names.size(); i++) {
+				sb.append(names.get(i).write());
+				if (i + 1 < names.size()) {
+					sb.append(", ");
+				}
+			}
+			sb.append(" = ");
+			for (int i = 0; i < sources.size(); i++) {
+				String source = sources.get(i).write();
+				if (source.contains(",")) {
+					//					sb.append("(");
+					sb.append(source);
+					//					sb.append(")");
+				} else {
+					sb.append(source);
+				}
+				if (i + 1 < sources.size()) {
+					sb.append(", ");
+				}
+			}
+			return sb.toString();
 		}
 
 	}
@@ -417,6 +535,10 @@ public class Parser {
 			return "StringLiteral [contents=" + contents + "]";
 		}
 
+		public String write() {
+			return "\"" + (contents.toString().replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")) + "\"";
+		}
+
 	}
 
 	public static class CharacterLiteral extends Code {
@@ -433,6 +555,9 @@ public class Parser {
 			return "CharacterLiteral [contents=" + contents + "]";
 		}
 
+		public String write() {
+			return "\'" + (contents.toString().replace("\\", "\\\\").replace("\'", "\\\'").replace("\n", "\\n")) + "\'";
+		}
 	}
 
 	public static class Return extends Code {
@@ -453,6 +578,24 @@ public class Parser {
 			return "Return [statements=" + statements + "]";
 		}
 
+		public String write() {
+			StringBuilder sb = new StringBuilder();
+			sb.append("return ");
+			for (int i = 0; i < statements.size(); i++) {
+				String source = statements.get(i).write();
+				if (source.contains(",")) {
+					//					sb.append("(");
+					sb.append(source);
+					//					sb.append(")");
+				} else {
+					sb.append(source);
+				}
+				if (i + 1 < statements.size()) {
+					sb.append(", ");
+				}
+			}
+			return sb.toString();
+		}
 	}
 
 }

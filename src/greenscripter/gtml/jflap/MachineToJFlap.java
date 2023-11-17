@@ -17,7 +17,7 @@ import greenscripter.gtml.simulator.MachineGraph.Transition;
 public class MachineToJFlap {
 
 	public static void main(String[] args) throws IOException {
-		MachineGraph graph = new MachineGraph(new File("outputtest.gtm"));
+		MachineGraph graph = new MachineGraph(new File("generated.gtm"));
 		//replace multi character symbols
 		Set<String> allSymbols = new HashSet<>();
 		Map<String, String> replace = new HashMap<>();
@@ -29,22 +29,22 @@ public class MachineToJFlap {
 		}
 		char at = 32;
 		for (String s : allSymbols) {
-			if (s.length() > 1 || s.equals("~")|| s.equals("!")) {
-				while (allSymbols.contains(at + "") || at == '~'|| at == '!') {
+			if (s.length() > 1 || s.equals("~") || s.equals("!")) {
+				while (allSymbols.contains(at + "") || at == '~' || at == '!') {
 					at++;
 				}
 				replace.put(s, at + "");
 				at++;
 			}
 		}
-		
+
 		for (List<Transition> s : graph.transitions.values()) {
 			for (Transition t : s) {
 				if (replace.containsKey(t.read)) t.read = replace.get(t.read);
 				if (replace.containsKey(t.write)) t.write = replace.get(t.write);
 			}
 		}
-		
+
 		try (BufferedWriter output = new BufferedWriter(new FileWriter(new File("outputtest.jff")))) {
 			//headers
 			output.write("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><!--Created with JFLAP 7.1.--><structure>");
@@ -80,6 +80,7 @@ public class MachineToJFlap {
 				output.write("</block>");
 
 			}
+			System.out.println(states.size() + " states");
 
 			for (List<Transition> s : graph.transitions.values()) {
 				for (Transition t : s) {
