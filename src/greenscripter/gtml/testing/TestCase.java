@@ -31,7 +31,7 @@ public class TestCase {
 
 	public boolean test(MachineGraph g) {
 		Simulator sim = new Simulator(g);
-		sim.setLogging(logging);
+		//		sim.setLogging(logging);
 		sim.loadTape(input);
 		long start = System.currentTimeMillis();
 		long step = 0;
@@ -73,7 +73,6 @@ public class TestCase {
 				}
 			}
 		}
-		System.out.println("Passed test");
 		return true;
 	}
 

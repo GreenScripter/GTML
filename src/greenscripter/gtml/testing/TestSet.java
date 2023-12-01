@@ -29,28 +29,32 @@ public class TestSet {
 	public TestSet(File tests) throws IOException {
 
 		try (BufferedReader input = new BufferedReader(new FileReader(tests))) {
-			String line = input.readLine();
-			TestCase c = new TestCase();
+			String line;
+			while ((line = input.readLine()) != null) {
+				TestCase c = new TestCase();
 
-			if (line.startsWith("+")) {
-				if (line.startsWith("+*")) {
-					c.input = TestCase.splitString(line.substring(2));
-					c.output = TestCase.splitString(input.readLine().substring(1));
+				if (line.startsWith("+")) {
+					if (line.startsWith("+*")) {
+						c.input = TestCase.splitString(line.substring(2));
+						c.output = TestCase.splitString(input.readLine().substring(1));
+					}
+					if (line.startsWith("+$")) {
+						c.input = MachineGraph.splitCommas(line.substring(2));
+						c.output = MachineGraph.splitCommas(input.readLine().substring(1));
+					}
 				}
-				if (line.startsWith("+$")) {
-					c.input = MachineGraph.splitCommas(line.substring(2));
-					c.output = MachineGraph.splitCommas(input.readLine().substring(1));
+				if (line.startsWith("-")) {
+					if (line.startsWith("-*")) {
+						c.input = TestCase.splitString(line.substring(2));
+						c.output.clear();
+					}
+					if (line.startsWith("-$")) {
+						c.input = MachineGraph.splitCommas(line.substring(2));
+						c.output.clear();
+					}
 				}
-			}
-			if (line.startsWith("-")) {
-				if (line.startsWith("-*")) {
-					c.input = TestCase.splitString(line.substring(2));
-					c.output.clear();
-				}
-				if (line.startsWith("-$")) {
-					c.input = MachineGraph.splitCommas(line.substring(2));
-					c.output.clear();
-				}
+
+				cases.add(c);
 			}
 		}
 
@@ -108,15 +112,12 @@ public class TestSet {
 	}
 
 	public boolean test(MachineGraph g) {
-		boolean anyFailed = false;
 		for (TestCase c : cases) {
 			if (!c.test(g)) {
-				anyFailed = true;
-				if (!logging) return false;
-				System.out.println("Failed case " + TestCase.merge(c.input));
+				if (logging) System.out.println("Failed case " + TestCase.merge(c.input));
+				return false;
 			}
 		}
-		if (anyFailed) return false;
 		if (logging) System.out.println("Passed " + cases.size() + " tests.");
 		return true;
 	}
