@@ -43,16 +43,21 @@ public class Simulator {
 	boolean terminated = false;
 	int steps = 0;
 	String state;
+	boolean logging;
 
 	public Simulator(MachineGraph graph) {
 		this.graph = graph;
 		state = graph.initialState;
 	}
 
+	public void setLogging(boolean v) {
+		logging = v;
+	}
+
 	public void step() {
 		steps++;
-		System.out.println(state);
-		System.out.println(tape.toString());
+		if (logging) System.out.println(state);
+		if (logging) System.out.println(tape.toString());
 		List<Transition> transitions = graph.transitions.get(state);
 		if (transitions == null) {
 			terminated = true;
@@ -75,13 +80,13 @@ public class Simulator {
 						break;
 
 				}
-				if (t.lineNumber != 0) System.out.println("Line: " + t.lineNumber + " machine code: " + t);
-				if (t.lineNumber == 0) System.out.println("Machine code: " + t);
+				if (logging && t.lineNumber != 0) System.out.println("Line: " + t.lineNumber + " machine code: " + t);
+				if (logging && t.lineNumber == 0) System.out.println("Machine code: " + t);
 				state = t.target;
 				return;
 			}
 		}
-		System.out.println("No transitions from state: " + transitions);
+		if (logging) System.out.println("No transitions from state: " + transitions);
 		terminated = true;
 	}
 
@@ -95,6 +100,10 @@ public class Simulator {
 
 	public String getResult() {
 		return tape.readOutput();
+	}
+
+	public List<String> getResultList() {
+		return tape.readOutputList();
 	}
 
 	public void loadTape(List<String> tape) {

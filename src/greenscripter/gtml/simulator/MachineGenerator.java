@@ -159,7 +159,7 @@ public class MachineGenerator {
 		System.out.println(graph.initialState);
 		System.out.println(graph.acceptingStates);
 		Simulator simulator = new Simulator(graph);
-		simulator.loadTape("L1S");
+		simulator.loadTape("L101101110SS");
 		long start = System.currentTimeMillis();
 
 		while (!simulator.isTerminated()) {

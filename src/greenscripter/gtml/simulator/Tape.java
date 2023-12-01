@@ -97,4 +97,15 @@ public class Tape {
 		cursor = cursorAt;
 		return sb.toString();
 	}
+
+	public List<String> readOutputList() {
+		List<String> result = new ArrayList<>();
+		int cursorAt = cursor;
+		while (!read().equals("")) {
+			result.add(read());
+			right();
+		}
+		cursor = cursorAt;
+		return result;
+	}
 }
