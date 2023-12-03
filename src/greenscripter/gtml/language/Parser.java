@@ -229,11 +229,7 @@ public class Parser {
 				String child = c.write();
 				sb.append(child);
 				if (i + 1 < this.blocks.size()) {
-					if (this.blocks.get(i + 1) instanceof ElseStatement) {
-						sb.append(" ");
-					} else {
-						sb.append("\n");
-					}
+					sb.append("\n");
 				}
 			}
 			if (direct) return sb.toString();
@@ -387,25 +383,6 @@ public class Parser {
 			return "if (" + arguments.write() + ") " + contents.write() + (elseBlock == null ? "" : " else " + elseBlock.write());
 		}
 
-	}
-
-	public static class ElseStatement extends Code {
-
-		public Code contents;
-
-		public ElseStatement(TokenIterator tokens) {
-			startToken = tokens.throwingNext("Missing else text").forceIs("else");
-
-			contents = parse(tokens);
-		}
-
-		public String toString() {
-			return "ElseStatement [" + "contents=" + contents + "]";
-		}
-
-		public String write() {
-			return "else " + contents.write();
-		}
 	}
 
 	public static class FunctionDefinition extends Code {
