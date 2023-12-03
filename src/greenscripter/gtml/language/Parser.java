@@ -19,12 +19,18 @@ public class Parser {
 		System.out.println(new CodeBlock(tok.getIterator()).write(true));
 	}
 
+	public CodeBlock code;
+
 	public Parser() {
 
 	}
 
-	public Parser(Tokenizer tokenizer) {
+	public Parser(File f) throws IOException {
+		this(new Tokenizer(f));
+	}
 
+	public Parser(Tokenizer tokenizer) {
+		code = new CodeBlock(tokenizer.getIterator());
 	}
 
 	private static TokenIterator getParentheses(TokenIterator iterator) {
@@ -35,11 +41,16 @@ public class Parser {
 			Token token = iterator.next();
 			if (token == null) {
 				throw new TokenException("No matching parentheses", start);
-			}
-			if (token.token.equals("(")) {
+			} else if (token.token.equals("\"") || token.token.equals("\'")) {
+				iterator.next();
+				Token endQuote = iterator.next();
+				if (endQuote == null) {
+					throw new TokenException("No matching quotes", start);
+				}
+				endQuote.forceIs(token.token);
+			} else if (token.token.equals("(")) {
 				layer++;
-			}
-			if (token.token.equals(")")) {
+			} else if (token.token.equals(")")) {
 				layer--;
 			}
 		}
@@ -54,86 +65,91 @@ public class Parser {
 			Token token = iterator.next();
 			if (token == null) {
 				throw new TokenException("No matching brackets", start);
-			}
-			if (token.token.equals("{")) {
+			} else if (token.token.equals("\"") || token.token.equals("\'")) {
+				iterator.next();
+				Token endQuote = iterator.next();
+				if (endQuote == null) {
+					throw new TokenException("No matching quotes", start);
+				}
+				endQuote.forceIs(token.token);
+			} else if (token.token.equals("{")) {
 				layer++;
-			}
-			if (token.token.equals("}")) {
+			} else if (token.token.equals("}")) {
 				layer--;
 			}
 		}
 		return child.endAt(iterator);
 	}
 
-	public static abstract class Code {
-
-		public static Code parse(TokenIterator tokens) {
-			TokenIterator inspector = tokens.copy();
-			Token next = inspector.next();
-			if (next == null) return null;
-			if (next.is("#")) return new CompilerInfo(tokens);
-			if (next.is("{")) {
-				tokens.next().forceIs("{");
-				return new CodeBlock(getBrackets(tokens));
+	private static Code parse(TokenIterator tokens) {
+		TokenIterator inspector = tokens.copy();
+		Token next = inspector.next();
+		if (next == null) return null;
+		if (next.is("#")) return new CompilerInfo(tokens);
+		if (next.is("{")) {
+			tokens.next().forceIs("{");
+			return new CodeBlock(getBrackets(tokens));
+		}
+		if (next.isName()) {
+			Token after = inspector.next();
+			if (after == null) {
+				return new VariableRead(tokens);
 			}
-			if (next.isName()) {
-				Token after = inspector.next();
-				if (after == null) {
+			if (after.is("(")) {
+				return new FunctionCall(tokens);
+			} else {
+				try {
+					TokenIterator tester = tokens.copy();
+					Assignment a = new Assignment(tester);
+					tokens.fastForwardTo(tester);
+					return a;
+				} catch (Assignment.AssignmentFail e) {
 					return new VariableRead(tokens);
 				}
-				if (after.is("(")) {
-					return new FunctionCall(tokens);
-				} else {
-					try {
-						TokenIterator tester = tokens.copy();
-						Assignment a = new Assignment(tester);
-						tokens.fastForwardTo(tester);
-						return a;
-					} catch (Assignment.AssignmentFail e) {
-						return new VariableRead(tokens);
-					}
-				}
 			}
-			if (next.is("while") || next.is("if")) {
-				return new ControlStatement(tokens);
-			}
-			if (next.is("else")) {
-				return new ElseStatement(tokens);
-			}
-			if (next.is("func")) {
-				return new FunctionDefinition(tokens);
-			}
-			if (next.is("\"")) {
-				return new StringLiteral(tokens);
-			}
-			if (next.is("\'")) {
-				return new CharacterLiteral(tokens);
-			}
-			if (next.is("(")) {
-				tokens.next().forceIs("(");
-				TokenIterator it = getParentheses(tokens);
-				Code c = parse(it);
-				if (it.hasNext()) {
-					throw new TokenException("Extra content in parentheses", it.next());
-				}
-				return c;
-			}
-			if (next.is("return")) {
-				return new Return(tokens);
-			}
-			throw new TokenException("Unexpected content", next);
 		}
+		if (next.is("while") || next.is("if")) {
+			return new ControlStatement(tokens);
+		}
+		if (next.is("else")) {
+			return new ElseStatement(tokens);
+		}
+		if (next.is("func")) {
+			return new FunctionDefinition(tokens);
+		}
+		if (next.is("\"")) {
+			return new StringLiteral(tokens);
+		}
+		if (next.is("\'")) {
+			return new CharacterLiteral(tokens);
+		}
+		if (next.is("(")) {
+			tokens.next().forceIs("(");
+			TokenIterator it = getParentheses(tokens);
+			Code c = parse(it);
+			if (it.hasNext()) {
+				throw new TokenException("Extra content in parentheses", it.next());
+			}
+			return c;
+		}
+		if (next.is("return")) {
+			return new Return(tokens);
+		}
+		throw new TokenException("Unexpected content", next);
+	}
+
+	public static abstract class Code {
 
 		public abstract String write();
 	}
 
 	public static class CodeBlock extends Code {
 
-		List<Code> blocks = new ArrayList<>();
+		public List<Code> blocks = new ArrayList<>();
 
 		public CodeBlock(TokenIterator tokens) {
 			while (tokens.hasNext()) {
-				Code c = Code.parse(tokens);
+				Code c = parse(tokens);
 				if (c == null) {
 					throw new TokenException("Unexpected token ", tokens.next());
 				}
@@ -193,8 +209,8 @@ public class Parser {
 
 	public static class FunctionCall extends Code {
 
-		Token name;
-		List<Code> arguments = new ArrayList<>();
+		public Token name;
+		public List<Code> arguments = new ArrayList<>();
 
 		public FunctionCall(TokenIterator tokens) {
 			name = tokens.throwingNext("No function name").forceName();
@@ -203,7 +219,7 @@ public class Parser {
 
 			TokenIterator subTokens = getParentheses(tokens);
 			while (subTokens.hasNext()) {
-				arguments.add(Code.parse(subTokens));
+				arguments.add(parse(subTokens));
 				if (subTokens.hasNext()) {
 					subTokens.next().forceIs(",");
 					if (!subTokens.hasNext()) {
@@ -235,8 +251,8 @@ public class Parser {
 
 	public static class CompilerInfo extends Code {
 
-		Token name;
-		List<Token> contents = new ArrayList<>();
+		public Token name;
+		public List<Token> contents = new ArrayList<>();
 
 		public CompilerInfo(TokenIterator tokens) {
 			Token tmp = tokens.throwingNext("Invalid compiler info").forceIs("#");
@@ -275,21 +291,21 @@ public class Parser {
 
 	public static class ControlStatement extends Code {
 
-		Token name;
-		Code arguments;
-		Code contents;
+		public Token name;
+		public Code arguments;
+		public Code contents;
 
 		public ControlStatement(TokenIterator tokens) {
 			name = tokens.throwingNext("Missing control type");
 			tokens.throwingNext("No arguments for control block").forceIs("(");
 
 			TokenIterator subTokens = getParentheses(tokens);
-			arguments = Code.parse(subTokens);
+			arguments = parse(subTokens);
 			Token block = tokens.copy().next();
 			if (block != null && block.is("{")) {
 				block.forceSameLine(name);
 			}
-			contents = Code.parse(tokens);
+			contents = parse(tokens);
 		}
 
 		public String toString() {
@@ -304,12 +320,12 @@ public class Parser {
 
 	public static class ElseStatement extends Code {
 
-		Code contents;
+		public Code contents;
 
 		public ElseStatement(TokenIterator tokens) {
 			tokens.throwingNext("Missing else text").forceIs("else");
 
-			contents = Code.parse(tokens);
+			contents = parse(tokens);
 		}
 
 		public String toString() {
@@ -323,11 +339,11 @@ public class Parser {
 
 	public static class FunctionDefinition extends Code {
 
-		List<Token> returnTypes = new ArrayList<>();
-		Token name;
-		List<Token> arguments = new ArrayList<>();
-		List<Token> argumentTypes = new ArrayList<>();
-		Code body;
+		public List<Token> returnTypes = new ArrayList<>();
+		public Token name;
+		public List<Token> arguments = new ArrayList<>();
+		public List<Token> argumentTypes = new ArrayList<>();
+		public Code body;
 
 		public FunctionDefinition(TokenIterator tokens) {
 			Token decl = tokens.throwingNext("Missing function declaration").forceIs("func");
@@ -356,7 +372,7 @@ public class Parser {
 			if (block != null && block.is("{")) {
 				block.forceSameLine(name);
 			}
-			body = Code.parse(tokens);
+			body = parse(tokens);
 			if (body == null) {
 				throw new TokenException("Missing function body", tokens.getEndErrorToken());
 			}
@@ -400,7 +416,7 @@ public class Parser {
 
 	public static class VariableRead extends Code {
 
-		Token name;
+		public Token name;
 
 		public VariableRead(TokenIterator tokens) {
 			name = tokens.throwingNext("Missing variable name").forceName();
@@ -418,8 +434,8 @@ public class Parser {
 
 	public static class Assignment extends Code {
 
-		List<Destination> names = new ArrayList<>();
-		List<Code> sources = new ArrayList<>();
+		public List<Destination> names = new ArrayList<>();
+		public List<Code> sources = new ArrayList<>();
 
 		public Assignment(TokenIterator tokens) {
 			try {
@@ -443,7 +459,7 @@ public class Parser {
 				throw new AssignmentFail(e);
 			}
 			while (true) {
-				Code c = Code.parse(tokens);
+				Code c = parse(tokens);
 				if (c == null) throw new TokenException("Missing assignment result", tokens.getEndErrorToken());
 				sources.add(c);
 				if (tokens.hasNext() && tokens.copy().next().is(",")) {
@@ -465,8 +481,8 @@ public class Parser {
 
 		public static class Destination {
 
-			Token type;
-			Token name;
+			public Token type;
+			public Token name;
 
 			public Destination(Token name) {
 				this.name = name;
@@ -523,7 +539,7 @@ public class Parser {
 
 	public static class StringLiteral extends Code {
 
-		Token contents;
+		public Token contents;
 
 		public StringLiteral(TokenIterator tokens) {
 			tokens.throwingNext("Missing string start quotes").is("\"");
@@ -543,7 +559,7 @@ public class Parser {
 
 	public static class CharacterLiteral extends Code {
 
-		Token contents;
+		public Token contents;
 
 		public CharacterLiteral(TokenIterator tokens) {
 			tokens.throwingNext("Missing character start quotes").is("\'");
@@ -562,13 +578,13 @@ public class Parser {
 
 	public static class Return extends Code {
 
-		List<Code> statements = new ArrayList<>();
+		public List<Code> statements = new ArrayList<>();
 
 		public Return(TokenIterator tokens) {
 			tokens.throwingNext("Missing return statment").forceIs("return");
 
 			do {
-				Code c = Code.parse(tokens);
+				Code c = parse(tokens);
 				if (c == null) throw new TokenException("Missing return value", tokens.getEndErrorToken());
 				statements.add(c);
 			} while (tokens.hasNext() && (tokens.copy().next().is(",") && tokens.next().equals(tokens.get())));
