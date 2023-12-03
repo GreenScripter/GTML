@@ -110,11 +110,11 @@ public class Parser {
 				}
 			}
 		}
-		if (next.is("while") || next.is("if")) {
-			return new ControlStatement(tokens);
+		if (next.is("while")) {
+			return new WhileStatement(tokens);
 		}
-		if (next.is("else")) {
-			return new ElseStatement(tokens);
+		if (next.is("if")) {
+			return new IfStatement(tokens);
 		}
 		if (next.is("func")) {
 			return new FunctionDefinition(tokens);
@@ -160,8 +160,8 @@ public class Parser {
 			CODE_BLOCK(CodeBlock.class), //
 			FUNCTION_CALL(FunctionCall.class), //
 			COMPILER_INFO(CompilerInfo.class), //
-			CONTROL_STATEMENT(ControlStatement.class), //
-			ELSE_STATEMENT(ElseStatement.class), //
+			IF_STATEMENT(IfStatement.class), //
+			WHILE_STATEMENT(WhileStatement.class), //
 			FUNCTION_DEFINITION(FunctionDefinition.class), //
 			VARIABLE_READ(VariableRead.class), //
 			ASSIGNMENT(Assignment.class), //
@@ -251,7 +251,7 @@ public class Parser {
 			name = tokens.throwingNext("No function name").forceName();
 
 			startToken = name;
-			
+
 			tokens.throwingNext("No arguments for function").forceIs("(").forceSameLine(name);
 
 			TokenIterator subTokens = getParentheses(tokens);
@@ -327,32 +327,64 @@ public class Parser {
 
 	}
 
-	public static class ControlStatement extends Code {
+	public static class WhileStatement extends Code {
 
-		public Token name;
 		public Code arguments;
 		public Code contents;
 
-		public ControlStatement(TokenIterator tokens) {
-			name = tokens.throwingNext("Missing control type");
-			startToken = name;
+		public WhileStatement(TokenIterator tokens) {
+			startToken = tokens.throwingNext("Missing control type").forceIs("while");
 			tokens.throwingNext("No arguments for control block").forceIs("(");
 
 			TokenIterator subTokens = getParentheses(tokens);
 			arguments = parse(subTokens);
 			Token block = tokens.copy().next();
 			if (block != null && block.is("{")) {
-				block.forceSameLine(name);
+				block.forceSameLine(startToken);
 			}
 			contents = parse(tokens);
 		}
 
 		public String toString() {
-			return "ControlStatement [name=" + name + ", arguments=" + arguments + ", contents=" + contents + "]";
+			return "WhileStatement [arguments=" + arguments + ", contents=" + contents + "]";
 		}
 
 		public String write() {
-			return name + " (" + arguments.write() + ") " + contents.write();
+			return "while (" + arguments.write() + ") " + contents.write();
+		}
+
+	}
+
+	public static class IfStatement extends Code {
+
+		public Code arguments;
+		public Code contents;
+		public Code elseBlock;
+
+		public IfStatement(TokenIterator tokens) {
+			startToken = tokens.throwingNext("Missing control type").forceIs("if");
+			tokens.throwingNext("No arguments for control block").forceIs("(");
+
+			TokenIterator subTokens = getParentheses(tokens);
+			arguments = parse(subTokens);
+			Token block = tokens.copy().next();
+			if (block != null && block.is("{")) {
+				block.forceSameLine(startToken);
+			}
+			contents = parse(tokens);
+			Token peek = tokens.copy().next();
+			if (peek != null && peek.is("else")) {
+				tokens.throwingNext("Missing else text").forceIs("else");
+				elseBlock = parse(tokens);
+			}
+		}
+
+		public String toString() {
+			return "IfStatement [arguments=" + arguments + ", contents=" + contents + ", else=" + elseBlock + "]";
+		}
+
+		public String write() {
+			return "if (" + arguments.write() + ") " + contents.write() + (elseBlock == null ? "" : " else " + elseBlock.write());
 		}
 
 	}

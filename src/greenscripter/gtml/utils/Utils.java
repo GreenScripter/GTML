@@ -71,4 +71,13 @@ public class Utils {
 		}
 		return sb.toString();
 	}
+
+	@SafeVarargs
+	public static <T> ArrayList<T> arraylist(T... ts) {
+		ArrayList<T> list = new ArrayList<>();
+		for (T t : ts) {
+			list.add(t);
+		}
+		return list;
+	}
 }
