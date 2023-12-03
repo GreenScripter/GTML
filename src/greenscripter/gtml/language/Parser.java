@@ -15,8 +15,8 @@ public class Parser {
 		Tokenizer tok = new Tokenizer(new File("testcode.gtml"));
 		new Parser(tok);
 		TokenIterator it = tok.getIterator();
-		System.out.println(CodeBlock.indentedToString(new CodeBlock(it).toString()));
-		System.out.println(new CodeBlock(tok.getIterator()).write(true));
+		System.out.println(CodeBlock.indentedToString(new CodeBlock(it, null).toString()));
+		System.out.println(new CodeBlock(tok.getIterator(), null).write(true));
 	}
 
 	public CodeBlock code;
@@ -30,7 +30,9 @@ public class Parser {
 	}
 
 	public Parser(Tokenizer tokenizer) {
-		code = new CodeBlock(tokenizer.getIterator());
+		if (tokenizer.tokens.size() > 0) {
+			code = new CodeBlock(tokenizer.getIterator(), tokenizer.tokens.get(0));
+		}
 	}
 
 	private static TokenIterator getParentheses(TokenIterator iterator) {
@@ -88,7 +90,7 @@ public class Parser {
 		if (next.is("#")) return new CompilerInfo(tokens);
 		if (next.is("{")) {
 			tokens.next().forceIs("{");
-			return new CodeBlock(getBrackets(tokens));
+			return new CodeBlock(getBrackets(tokens), next);
 		}
 		if (next.isName()) {
 			Token after = inspector.next();
@@ -140,14 +142,47 @@ public class Parser {
 
 	public static abstract class Code {
 
+		public Token startToken;
+
 		public abstract String write();
+
+		public StatementType getType() {
+			for (StatementType s : StatementType.values()) {
+				if (s.type.isInstance(this)) {
+					return s;
+				}
+			}
+			return null;
+		}
+
+		public enum StatementType {
+
+			CODE_BLOCK(CodeBlock.class), //
+			FUNCTION_CALL(FunctionCall.class), //
+			COMPILER_INFO(CompilerInfo.class), //
+			CONTROL_STATEMENT(ControlStatement.class), //
+			ELSE_STATEMENT(ElseStatement.class), //
+			FUNCTION_DEFINITION(FunctionDefinition.class), //
+			VARIABLE_READ(VariableRead.class), //
+			ASSIGNMENT(Assignment.class), //
+			STRING_LITERAL(StringLiteral.class), //
+			CHARACTER_LITERAL(CharacterLiteral.class), //
+			RETURN(Return.class);
+
+			public final Class<?> type;
+
+			StatementType(Class<?> type) {
+				this.type = type;
+			}
+		}
 	}
 
 	public static class CodeBlock extends Code {
 
 		public List<Code> blocks = new ArrayList<>();
 
-		public CodeBlock(TokenIterator tokens) {
+		public CodeBlock(TokenIterator tokens, Token start) {
+			this.startToken = start;
 			while (tokens.hasNext()) {
 				Code c = parse(tokens);
 				if (c == null) {
@@ -215,6 +250,8 @@ public class Parser {
 		public FunctionCall(TokenIterator tokens) {
 			name = tokens.throwingNext("No function name").forceName();
 
+			startToken = name;
+			
 			tokens.throwingNext("No arguments for function").forceIs("(").forceSameLine(name);
 
 			TokenIterator subTokens = getParentheses(tokens);
@@ -256,6 +293,7 @@ public class Parser {
 
 		public CompilerInfo(TokenIterator tokens) {
 			Token tmp = tokens.throwingNext("Invalid compiler info").forceIs("#");
+			startToken = tmp;
 			name = tokens.throwingNext("No name token").forceSameLine(tmp).forceName();
 
 			Token parenthesis = tokens.copy().next();
@@ -297,6 +335,7 @@ public class Parser {
 
 		public ControlStatement(TokenIterator tokens) {
 			name = tokens.throwingNext("Missing control type");
+			startToken = name;
 			tokens.throwingNext("No arguments for control block").forceIs("(");
 
 			TokenIterator subTokens = getParentheses(tokens);
@@ -323,7 +362,7 @@ public class Parser {
 		public Code contents;
 
 		public ElseStatement(TokenIterator tokens) {
-			tokens.throwingNext("Missing else text").forceIs("else");
+			startToken = tokens.throwingNext("Missing else text").forceIs("else");
 
 			contents = parse(tokens);
 		}
@@ -347,6 +386,7 @@ public class Parser {
 
 		public FunctionDefinition(TokenIterator tokens) {
 			Token decl = tokens.throwingNext("Missing function declaration").forceIs("func");
+			startToken = decl;
 			name = tokens.throwingNext("Missing function name").forceName().forceSameLine(decl);
 
 			tokens.throwingNext("No argument definition for function").forceIs("(");
@@ -419,7 +459,7 @@ public class Parser {
 		public Token name;
 
 		public VariableRead(TokenIterator tokens) {
-			name = tokens.throwingNext("Missing variable name").forceName();
+			startToken = name = tokens.throwingNext("Missing variable name").forceName();
 		}
 
 		public String toString() {
@@ -455,6 +495,7 @@ public class Parser {
 						}
 					}
 				}
+				startToken = next;
 			} catch (TokenException e) {
 				throw new AssignmentFail(e);
 			}
@@ -542,9 +583,9 @@ public class Parser {
 		public Token contents;
 
 		public StringLiteral(TokenIterator tokens) {
-			tokens.throwingNext("Missing string start quotes").is("\"");
+			startToken = tokens.throwingNext("Missing string start quotes").forceIs("\"");
 			contents = tokens.throwingNext("Missing string contents");
-			tokens.throwingNext("Missing string end quotes").is("\"");
+			tokens.throwingNext("Missing string end quotes").forceIs("\"");
 		}
 
 		public String toString() {
@@ -562,9 +603,9 @@ public class Parser {
 		public Token contents;
 
 		public CharacterLiteral(TokenIterator tokens) {
-			tokens.throwingNext("Missing character start quotes").is("\'");
+			startToken = tokens.throwingNext("Missing character start quotes").forceIs("\'");
 			contents = tokens.throwingNext("Missing character contents");
-			tokens.throwingNext("Missing character end quotes").is("\'");
+			tokens.throwingNext("Missing character end quotes").forceIs("\'");
 		}
 
 		public String toString() {
@@ -581,7 +622,7 @@ public class Parser {
 		public List<Code> statements = new ArrayList<>();
 
 		public Return(TokenIterator tokens) {
-			tokens.throwingNext("Missing return statment").forceIs("return");
+			startToken = tokens.throwingNext("Missing return statment").forceIs("return");
 
 			do {
 				Code c = parse(tokens);

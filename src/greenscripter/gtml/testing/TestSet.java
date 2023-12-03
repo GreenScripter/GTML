@@ -1,5 +1,7 @@
 package greenscripter.gtml.testing;
 
+import static greenscripter.gtml.utils.Utils.*;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,21 +37,21 @@ public class TestSet {
 
 				if (line.startsWith("+")) {
 					if (line.startsWith("+*")) {
-						c.input = TestCase.splitString(line.substring(2));
-						c.output = TestCase.splitString(input.readLine().substring(1));
+						c.input = splitString(line.substring(2));
+						c.output = splitString(input.readLine().substring(1));
 					}
 					if (line.startsWith("+$")) {
-						c.input = MachineGraph.splitCommas(line.substring(2));
-						c.output = MachineGraph.splitCommas(input.readLine().substring(1));
+						c.input = splitCommas(line.substring(2));
+						c.output = splitCommas(input.readLine().substring(1));
 					}
 				}
 				if (line.startsWith("-")) {
 					if (line.startsWith("-*")) {
-						c.input = TestCase.splitString(line.substring(2));
+						c.input = splitString(line.substring(2));
 						c.output.clear();
 					}
 					if (line.startsWith("-$")) {
-						c.input = MachineGraph.splitCommas(line.substring(2));
+						c.input = splitCommas(line.substring(2));
 						c.output.clear();
 					}
 				}
@@ -84,26 +86,26 @@ public class TestSet {
 					output.write("+");
 					if (escape) {
 						output.write("$");
-						output.write(MachineGraph.mergeCommas(c.input));
+						output.write(mergeCommas(c.input));
 						output.write("\n>");
-						output.write(MachineGraph.mergeCommas(c.output));
+						output.write(mergeCommas(c.output));
 						output.write("\n");
 					} else {
 						output.write("*");
-						output.write(TestCase.merge(c.input));
+						output.write(merge(c.input));
 						output.write("\n>");
-						output.write(TestCase.merge(c.output));
+						output.write(merge(c.output));
 						output.write("\n");
 					}
 				} else {
 					output.write("-");
 					if (escape) {
 						output.write("$");
-						output.write(MachineGraph.mergeCommas(c.input));
+						output.write(mergeCommas(c.input));
 						output.write("\n");
 					} else {
 						output.write("*");
-						output.write(TestCase.merge(c.input));
+						output.write(merge(c.input));
 						output.write("\n");
 					}
 				}
@@ -114,7 +116,7 @@ public class TestSet {
 	public boolean test(MachineGraph g) {
 		for (TestCase c : cases) {
 			if (!c.test(g)) {
-				if (logging) System.out.println("Failed case " + TestCase.merge(c.input));
+				if (logging) System.out.println("Failed case " + merge(c.input));
 				return false;
 			}
 		}

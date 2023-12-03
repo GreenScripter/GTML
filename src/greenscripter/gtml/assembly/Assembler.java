@@ -1,6 +1,6 @@
 package greenscripter.gtml.assembly;
 
-import static greenscripter.gtml.simulator.MachineGraph.*;
+import static greenscripter.gtml.utils.Utils.*;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -16,8 +16,8 @@ import java.io.FileReader;
 import java.io.IOException;
 
 import greenscripter.gtml.simulator.MachineGraph;
-import greenscripter.gtml.simulator.Simulator;
 import greenscripter.gtml.simulator.MachineGraph.Transition;
+import greenscripter.gtml.simulator.Simulator;
 
 public class Assembler {
 

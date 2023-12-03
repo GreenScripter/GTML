@@ -1,5 +1,7 @@
 package greenscripter.gtml.testing;
 
+import static greenscripter.gtml.utils.Utils.*;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -74,22 +76,6 @@ public class TestCase {
 			}
 		}
 		return true;
-	}
-
-	public static List<String> splitString(String input) {
-		List<String> letters = new ArrayList<>();
-		for (int i = 0; i < input.length(); i++) {
-			letters.add(input.charAt(i) + "");
-		}
-		return letters;
-	}
-
-	public static String merge(List<String> input) {
-		StringBuilder sb = new StringBuilder();
-		for (String s : input) {
-			sb.append(s);
-		}
-		return sb.toString();
 	}
 
 }
