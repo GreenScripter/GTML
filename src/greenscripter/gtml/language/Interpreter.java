@@ -38,46 +38,51 @@ public class Interpreter {
 	public Interpreter(Parser parser) {
 		this.parser = parser;
 
-		functions.put(new MethodSignature("atEquals", arraylist("string", "string")), //
+		functions.put(new MethodSignature("atEquals", arraylist("any", "any")), //
 				(caller, args) -> arraylist(new Value("bool", arraylist(args.get(0).get().equals(args.get(1).get()) ? "1" : "0"))));
-		functions.put(new MethodSignature("atEqualsInline", arraylist("string", "string")), //
+		functions.put(new MethodSignature("atEqualsInline", arraylist("any", "any")), //
 				(caller, args) -> arraylist(new Value("bool", arraylist(args.get(0).get().equals(args.get(1).get()) ? "1" : "0"))));
 
-		functions.put(new MethodSignature("next", arraylist("string")), //
+		functions.put(new MethodSignature("next", arraylist("any")), //
 				(caller, args) -> {
 					args.get(0).next();
 					return null;
 				});
-		functions.put(new MethodSignature("reset", arraylist("string")), //
+		functions.put(new MethodSignature("reset", arraylist("any")), //
 				(caller, args) -> {
 					args.get(0).reset();
 					return null;
 				});
-		functions.put(new MethodSignature("previous", arraylist("string")), //
+		functions.put(new MethodSignature("previous", arraylist("any")), //
 				(caller, args) -> {
 					args.get(0).previous();
 					return null;
 				});
 
-		functions.put(new MethodSignature("start", arraylist("string")), //
+		functions.put(new MethodSignature("start", arraylist("any")), //
 				(caller, args) -> arraylist(new Value("bool", arraylist(args.get(0).atStart() ? "1" : "0"))));
-		functions.put(new MethodSignature("end", arraylist("string")), //
+		functions.put(new MethodSignature("end", arraylist("any")), //
 				(caller, args) -> arraylist(new Value("bool", arraylist(args.get(0).atEnd() ? "1" : "0"))));
 
-		functions.put(new MethodSignature("insert", arraylist("string", "string")), //
+		functions.put(new MethodSignature("insert", arraylist("any", "any")), //
 				(caller, args) -> {
 					args.get(0).insert(args.get(1).get());
 					return null;
 				});
-		functions.put(new MethodSignature("insert", arraylist("string", "string")), //
+		functions.put(new MethodSignature("set", arraylist("any", "any")), //
 				(caller, args) -> {
 					args.get(0).set(args.get(1).get());
 					return null;
 				});
 
-		functions.put(new MethodSignature("remove", arraylist("string")), //
+		functions.put(new MethodSignature("remove", arraylist("any")), //
 				(caller, args) -> {
 					args.get(0).remove();
+					return null;
+				});
+		functions.put(new MethodSignature("debug_print", arraylist("any")), //
+				(caller, args) -> {
+					System.out.println(args.get(0));
 					return null;
 				});
 
@@ -211,12 +216,15 @@ public class Interpreter {
 				List<String> types = results.stream().map(v -> v.type).toList();
 				Function func = functions.get(new MethodSignature(call.name.token, types));
 				if (func == null) {
-					if (types.size() == 1) {
-						Value out = new Value(results.get(0));
-						out.type = types.get(0);
-						return new EvalResult(arraylist(out), false);
-					} else {
-						throw new TokenException("Function " + call.name.token + "(" + types.stream().reduce((s1, s2) -> s1 + ", " + s2).orElse("") + ") not found", block.startToken);
+					func = functions.get(new MethodSignature(call.name.token, types.stream().map(s -> "any").toList()));
+					if (func == null) {
+						if (types.size() == 1) {
+							Value out = new Value(results.get(0));
+							out.type = call.name.token;
+							return new EvalResult(arraylist(out), false);
+						} else {
+							throw new TokenException("Function " + call.name.token + "(" + types.stream().reduce((s1, s2) -> s1 + ", " + s2).orElse("") + ") not found", block.startToken);
+						}
 					}
 				}
 				return new EvalResult(func.evaluate(call.startToken, results), false);
