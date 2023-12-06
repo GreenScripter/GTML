@@ -534,7 +534,7 @@ public class Compiler {
 	}
 
 	//This method only handles "simplified" Code objects
-	private List<Instruction> flatten(Code code) {//TODO WIP
+	private List<Instruction> flatten(Code code) {
 		List<Instruction> result = new ArrayList<>();
 		switch (code.getType()) {
 			case ASSIGNMENT: {

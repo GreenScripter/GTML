@@ -327,7 +327,7 @@ public class Assembler {
 				for (Transition other : result) {
 					if (other.read.equals(t.read)) {
 						duplicate = true;
-						System.err.println("Warning: Duplicate transitions for symbol " + other.read + " on state " + t.source + " in " + trans.getErrored() + " line: " + trans.lineNumber);
+//						System.err.println("Warning: Duplicate transitions for symbol " + other.read + " on state " + t.source + " in " + trans.getErrored() + " line: " + trans.lineNumber);
 					}
 				}
 				if (!duplicate) result.add(t);
@@ -671,32 +671,32 @@ public class Assembler {
 
 	private void optimize() {
 		//optimize away AUS transitions
-		for (int i = 0; i < transitions.size(); i++) {
-			GeneralTransition trans = transitions.get(i);
-			if (trans.read.equals(trans.write) && trans.transition.equals("S")) {
-				boolean others = false;
-				for (GeneralTransition t : transitions) {
-					if (t.source.equals(trans.source) && !(t.read.equals(t.write) && t.transition.equals("S"))) {
-						others = true;
-						break;
-					}
-				}
-				if (!others) {
-					if (trans.source.equals(outputGraph.initialState)) {
-						outputGraph.initialState = trans.destination;
-					}
-					System.out.println("Removing: " + trans.getErrored());
-					transitions.remove(i);
-					i--;
-					for (GeneralTransition t : transitions) {
-						if (t.destination.equals(trans.source)) {
-							t.saveTransformation();
-							t.destination = trans.destination;
-						}
-					}
-				}
-			}
-		}
+//		for (int i = 0; i < transitions.size(); i++) {
+//			GeneralTransition trans = transitions.get(i);
+//			if (trans.read.equals(trans.write) && trans.transition.equals("S")) {
+//				boolean others = false;
+//				for (GeneralTransition t : transitions) {
+//					if (t.source.equals(trans.source) && !(t.read.equals(t.write) && t.transition.equals("S"))) {
+//						others = true;
+//						break;
+//					}
+//				}
+//				if (!others) {
+//					if (trans.source.equals(outputGraph.initialState)) {
+//						outputGraph.initialState = trans.destination;
+//					}
+//					System.out.println("Removing: " + trans.getErrored());
+//					transitions.remove(i);
+//					i--;
+//					for (GeneralTransition t : transitions) {
+//						if (t.destination.equals(trans.source)) {
+//							t.saveTransformation();
+//							t.destination = trans.destination;
+//						}
+//					}
+//				}
+//			}
+//		}
 		//remove unreachable states
 		boolean anyRemoved = true;
 		while (anyRemoved) {

@@ -14,14 +14,15 @@ public class Simulator {
 	public static void main(String[] args) throws IOException {
 		long compileStart = System.currentTimeMillis();
 
-		Assembler assembler = new Assembler(new File("finalmachine.gtma"));
+		Assembler assembler = new Assembler(new File("defaultfunctions.gtma"));
 		MachineGraph graph = assembler.outputGraph;
 		//		MachineGraph graph = new MachineGraph(new File("outputtestmangled.gtm"));
-		graph.write(new File("outputtest.gtm"), true);
+		graph.write(new File("compiledmachine.gtm"), true);
 		System.out.println(graph.initialState);
 		System.out.println(graph.acceptingStates);
 		Simulator simulator = new Simulator(graph);
-		simulator.loadTape("L11S");
+		simulator.loadTape("hello world");
+		simulator.setLogging(true);
 		long start = System.currentTimeMillis();
 
 		while (!simulator.isTerminated()) {
@@ -34,7 +35,7 @@ public class Simulator {
 		System.out.println("Compile time: " + (start - compileStart) + " ms.");
 		System.out.println("Runtime: " + (System.currentTimeMillis() - start) + " ms.");
 		graph.mangleNames();
-		graph.write(new File("outputtestmangled.gtm"), true);
+		graph.write(new File("compiledmachinemangled.gtm"), true);
 
 	}
 
