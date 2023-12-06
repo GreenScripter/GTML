@@ -192,6 +192,8 @@ public class Parser {
 			}
 		}
 
+		public CodeBlock() {}
+
 		public String toString() {
 			return "CodeBlock [\n" + blocks.stream().map(Object::toString).reduce((s1, s2) -> s1 + "\n" + s2).orElse("") + "\n]";
 		}
@@ -242,6 +244,8 @@ public class Parser {
 
 		public Token name;
 		public List<Code> arguments = new ArrayList<>();
+
+		public FunctionCall() {}
 
 		public FunctionCall(TokenIterator tokens) {
 			name = tokens.throwingNext("No function name").forceName();
@@ -341,6 +345,8 @@ public class Parser {
 			contents = parse(tokens);
 		}
 
+		public WhileStatement() {}
+
 		public String toString() {
 			return "WhileStatement [arguments=" + arguments + ", contents=" + contents + "]";
 		}
@@ -374,6 +380,8 @@ public class Parser {
 				elseBlock = parse(tokens);
 			}
 		}
+
+		public IfStatement() {}
 
 		public String toString() {
 			return "IfStatement [arguments=" + arguments + ", contents=" + contents + ", else=" + elseBlock + "]";
@@ -471,6 +479,8 @@ public class Parser {
 			startToken = name = tokens.throwingNext("Missing variable name").forceName();
 		}
 
+		public VariableRead() {}
+
 		public String toString() {
 			return "VariableRead [name=" + name + "]";
 		}
@@ -520,6 +530,8 @@ public class Parser {
 			}
 
 		}
+
+		public Assignment() {}
 
 		static class AssignmentFail extends RuntimeException {
 
@@ -639,6 +651,8 @@ public class Parser {
 				statements.add(c);
 			} while (tokens.hasNext() && (tokens.copy().next().is(",") && tokens.next().equals(tokens.get())));
 		}
+
+		public Return() {}
 
 		public String toString() {
 			return "Return [statements=" + statements + "]";

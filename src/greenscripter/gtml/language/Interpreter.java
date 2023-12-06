@@ -27,8 +27,9 @@ public class Interpreter {
 
 	public static void main(String[] args) throws IOException {
 		Interpreter interpreter = new Interpreter(new Parser(new File("testcode.gtml")));
-		String output = interpreter.run("bainput");
-		System.out.println(output);
+		RunResult output = interpreter.run("bainput");
+		System.out.println(output.accept);
+		System.out.println(output.value);
 	}
 
 	public Parser parser;
@@ -69,7 +70,17 @@ public class Interpreter {
 					args.get(0).insert(args.get(1).get());
 					return null;
 				});
+		functions.put(new MethodSignature("insertInline", arraylist("any", "any")), //
+				(caller, args) -> {
+					args.get(0).insert(args.get(1).get());
+					return null;
+				});
 		functions.put(new MethodSignature("set", arraylist("any", "any")), //
+				(caller, args) -> {
+					args.get(0).set(args.get(1).get());
+					return null;
+				});
+		functions.put(new MethodSignature("setInline", arraylist("any", "any")), //
 				(caller, args) -> {
 					args.get(0).set(args.get(1).get());
 					return null;
@@ -84,6 +95,14 @@ public class Interpreter {
 				(caller, args) -> {
 					System.out.println(args.get(0));
 					return null;
+				});
+		functions.put(new MethodSignature("accept", arraylist("any")), //
+				(caller, args) -> {
+					throw new EarlyExit(true, args.get(0));
+				});
+		functions.put(new MethodSignature("reject", arraylist("any")), //
+				(caller, args) -> {
+					throw new EarlyExit(false, args.get(0));
 				});
 
 		for (Code statement : parser.code.blocks) {
@@ -103,19 +122,31 @@ public class Interpreter {
 		}
 	}
 
-	public String run(String string) {
-		Value input = new Value("string", splitString(string));
+	public RunResult run(List<String> string) {
+		Value input = new Value("string", string);
 
 		Function main = functions.get(new MethodSignature("main", arraylist("string")));
 
-		List<Value> output = main.evaluate(new Token("", "<maincaller>", 0, 0), arraylist(input));
-		if (output == null) {
-			throw new TokenException("Main function did not return", ((CodeFunction) main).func.startToken);
+		try {
+			List<Value> output = main.evaluate(new Token("<maincaller>", "<maincaller>", 0, 0), arraylist(input));
+			if (output == null) {
+				throw new TokenException("Main function did not return", ((CodeFunction) main).func.startToken);
+			}
+			if (output.size() != 1) {
+				throw new TokenException("Wrong number of return values from main", ((CodeFunction) main).func.startToken);
+			}
+			return new RunResult(true, merge(output.get(0).value), output.get(0).value);
+		} catch (EarlyExit e) {
+			return new RunResult(e.accept, merge(e.value.value), e.value.value);
 		}
-		if (output.size() != 1) {
-			throw new TokenException("Wrong number of return values from main", ((CodeFunction) main).func.startToken);
-		}
-		return merge(output.get(0).value);
+	}
+
+	public RunResult run(String string) {
+		return run(splitString(string));
+	}
+
+	public static record RunResult(boolean accept, String value, List<String> longValue) {
+
 	}
 
 	public EvalResult evaluate(Code block, Scope scope) {
@@ -255,6 +286,18 @@ public class Interpreter {
 	}
 
 	private record EvalResult(List<Value> value, boolean returned) {
+
+	}
+
+	private class EarlyExit extends RuntimeException {
+
+		boolean accept;
+		Value value;
+
+		public EarlyExit(boolean accept, Value value) {
+			this.accept = accept;
+			this.value = value;
+		}
 
 	}
 

@@ -262,6 +262,10 @@ public class Tokenizer {
 			return token;
 		}
 
+		public Token derivative(String token) {
+			return new Token(token, lineContent, line, pos);
+		}
+
 		public String getErrored() {
 			StringBuilder sb = new StringBuilder();
 			sb.append("line ");
