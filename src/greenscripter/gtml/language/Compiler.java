@@ -4,9 +4,11 @@ import static greenscripter.gtml.utils.Utils.*;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 import java.io.File;
@@ -91,12 +93,13 @@ public class Compiler {
 		collectInfo();
 		for (TrackedFunction func : functions) {
 			System.out.print(func.def.name + ": ");
-			simplify(func.def.body).forEach(c -> System.out.println(c.write()));
+			List<Code> simplified = simplify(func.def.body);
+			simplified.forEach(c -> System.out.println(c.write()));
 			System.out.println("Instructions:");
-			simplify(func.def.body).stream().map(this::flatten).reduce((l1, l2) -> {
+			wrapFunction(func, simplified.stream().map(this::flatten).reduce((l1, l2) -> {
 				l1.addAll(l2);
 				return l1;
-			}).orElse(arraylist()).stream().map(s -> Parser.CodeBlock.indentedToString(s.toString())).forEach(System.out::println);
+			}).orElse(arraylist())).stream().map(s -> Parser.CodeBlock.indentedToString(s.toString())).forEach(System.out::println);
 		}
 	}
 
@@ -122,6 +125,7 @@ public class Compiler {
 		otherSymbols.add("STACK");
 		otherSymbols.add("CURSOR");
 		otherSymbols.add("PRINTPOINT");
+		otherSymbols.add("");
 		publicSymbols = new ArrayList<>(publicSymbols.stream().distinct().toList());
 		types = new ArrayList<>(types.stream().distinct().toList());
 		otherSymbols = new ArrayList<>(otherSymbols.stream().distinct().toList());
@@ -277,12 +281,16 @@ public class Compiler {
 			tempVars.sources = arraylist(last);
 			tempVars.names = new ArrayList<>();
 			String name = generateName();
-			tempVars.names.add(new Destination(last.startToken.derivative("bool"), last.startToken.derivative(name)));
+			List<String> returnTypes = getTypesFrom(last);
+			if (returnTypes.size() != 1) {
+				throw new TokenException("Unable to read a single result", last.startToken);
+			}
+			tempVars.names.add(new Destination(last.startToken.derivative(returnTypes.get(0)), last.startToken.derivative(name)));
 
 			VariableRead read = new VariableRead();
 			read.name = last.startToken.derivative(name);
 
-			variableTypes.put(read, "bool");
+			variableTypes.put(read, returnTypes.get(0));
 
 			// Assignments might still be complex, so simplify them.
 			internals.addAll(simplify(tempVars));
@@ -538,8 +546,6 @@ public class Compiler {
 
 					List<String> types = call.arguments.stream().map(a -> getTypesFrom(a).get(0)/*arguments should only be variable reads*/).toList();
 					GeneralFunction toCall = getFunction(call.name.token, types);
-					System.out.println(call.name.token);
-					System.out.println(types);
 					if (toCall instanceof TrackedFunction func) {
 						for (Code c : call.arguments) {
 							if (c instanceof VariableRead read) {
@@ -599,9 +605,34 @@ public class Compiler {
 							result.add(inst);
 						}
 					} else if (toCall instanceof DefaultFunction def) {
-						DefaultFunctionInstruction inst = def.type.apply(call);
-						inst.source = call.startToken;
-						result.add(inst);
+						try {
+							DefaultFunctionInstruction inst = def.type.apply(call);
+							inst.source = call.startToken;
+							result.add(inst);
+
+							//name returned stack values
+							int index = 0;
+							int offset = types.size() - 1;
+							for (String s : def.returnTypes) {
+								NameStackEntryInstruction inst2 = new NameStackEntryInstruction();
+								Destination target = assign.names.get(index);
+
+								inst2.source = target.name;
+								inst2.offset = offset;
+								inst2.name = target.name.token;
+								inst2.type = s;
+								result.add(inst2);
+								offset--;
+								index++;
+							}
+						} catch (Exception e) {
+							if (e instanceof TokenException) {
+								throw new RuntimeException(e);
+							} else {
+								e.printStackTrace();
+								throw new TokenException("Error: " + e, call.startToken);
+							}
+						}
 					} else {
 						throw new TokenException("Unknown function type " + (toCall != null ? toCall.getClass() : "null"), source.startToken);
 					}
@@ -609,6 +640,7 @@ public class Compiler {
 					//Not a function call, and has exactly one result.
 					Destination target = assign.names.get(0);
 					if (target.type != null) {
+						//This is a new variable, make a stack entry for it.
 						PushInstruction inst = new PushInstruction();
 						inst.source = target.type;
 						result.add(inst);
@@ -659,22 +691,247 @@ public class Compiler {
 			}
 			case COMPILER_INFO:
 				break;
-			case FUNCTION_CALL:
+			case FUNCTION_CALL: {
+				FunctionCall call = (FunctionCall) code;
+				List<String> types = call.arguments.stream().map(a -> getTypesFrom(a).get(0)/*arguments should only be variable reads*/).toList();
+				GeneralFunction toCall = getFunction(call.name.token, types);
+				if (toCall instanceof TrackedFunction func) {
+					for (Code c : call.arguments) {
+						if (c instanceof VariableRead read) {
+							PushCopyInstruction inst = new PushCopyInstruction();
+							inst.source = read.startToken;
+							inst.stackName = read.name.token;
+							result.add(inst);
+
+						} else {
+							throw new TokenException("Argument not a read", c.startToken);
+						}
+					}
+					CallInstruction callinst = new CallInstruction();
+					callinst.source = call.startToken;
+					callinst.target = func;
+					func.callers.add(callinst);//register caller for return jump
+					result.add(callinst);
+
+					CallCleanupInstruction inst = new CallCleanupInstruction();
+					inst.source = call.startToken;
+					inst.from = func;
+					inst.call = callinst;
+					callinst.cleanup = inst;
+					result.add(inst);
+
+					//pop off all return values
+					for (@SuppressWarnings("unused")
+					Token s : func.def.returnTypes) {
+						PopInstruction inst2 = new PopInstruction();
+						inst2.source = call.startToken;
+						result.add(inst2);
+					}
+				} else if (toCall instanceof TypeCast cast) {
+					//function call is a cast
+					throw new TokenException("Type cast return value is not used", call.startToken);
+				} else if (toCall instanceof DefaultFunction def) {
+					try {
+						DefaultFunctionInstruction inst = def.type.apply(call);
+						inst.source = call.startToken;
+						result.add(inst);
+						//pop off return values
+						for (@SuppressWarnings("unused")
+						String s : def.returnTypes) {
+							PopInstruction inst2 = new PopInstruction();
+							inst2.source = call.startToken;
+							result.add(inst2);
+						}
+					} catch (Exception e) {
+						if (e instanceof TokenException) {
+							throw new RuntimeException(e);
+						} else {
+							e.printStackTrace();
+							throw new TokenException("Error: " + e, call.startToken);
+						}
+					}
+				} else {
+					throw new TokenException("Unknown function type " + (toCall != null ? toCall.getClass() : "null"), call.startToken);
+				}
 				break;
+			}
 			case FUNCTION_DEFINITION:
 				throw new TokenException("Unable to flatten function definition", code.startToken);
-			case IF_STATEMENT:
+			case IF_STATEMENT: {
+				IfStatement ifState = (IfStatement) code;
+				//simplification should yield always a read here
+				VariableRead read = (VariableRead) ifState.arguments;
+				IfInstruction inst = new IfInstruction();
+				inst.source = ifState.startToken;
+				inst.stackName = read.name.token;
+				{
+					List<Instruction> flatContents = flatten(ifState.contents);
+					if (flatContents.size() != 1) {
+						ScopeBlockInstruction trueCase = new ScopeBlockInstruction();
+						trueCase.children.addAll(flatContents);
+						inst.caseTrue = trueCase;
+					} else {
+						inst.caseTrue = flatContents.get(0);
+					}
+				}
+				if (ifState.elseBlock != null) {
+					List<Instruction> flatElseBlock = flatten(ifState.elseBlock);
+					if (flatElseBlock.size() != 1) {
+						ScopeBlockInstruction falseCase = new ScopeBlockInstruction();
+						falseCase.children.addAll(flatten(ifState.elseBlock));
+						inst.caseFalse = falseCase;
+					} else {
+						inst.caseFalse = flatElseBlock.get(0);
+					}
+				}
+				result.add(inst);
 				break;
-			case RETURN:
+			}
+			case RETURN: {
+				Return ret = (Return) code;
+				ReturnInstruction inst = new ReturnInstruction();
+				inst.source = ret.startToken;
+				for (Code c : ret.statements) {
+					PushCopyInstruction copy = new PushCopyInstruction();
+					copy.source = c.startToken;
+					//Should always be returning a variable read from simplify
+					copy.stackName = ((VariableRead) c).name.token;
+					result.add(copy);
+					inst.returnSources.add(c.startToken);
+					inst.returnTypes.add(getTypesFrom(c).get(0));
+				}
+				result.add(inst);
+
 				break;
+			}
 			case STRING_LITERAL:
 				throw new TokenException("Orphaned string", code.startToken);
 			case VARIABLE_READ:
+				throw new TokenException("Orphaned variable read", code.startToken);
+			case WHILE_STATEMENT: {
+				WhileStatement whileState = (WhileStatement) code;
+				//simplification should yield always a read here
+				VariableRead read = (VariableRead) whileState.arguments;
+				WhileInstruction inst = new WhileInstruction();
+				inst.source = whileState.startToken;
+				inst.stackName = read.name.token;
+				{
+					List<Instruction> flatContents = flatten(whileState.contents);
+					if (flatContents.size() != 1) {
+						ScopeBlockInstruction trueCase = new ScopeBlockInstruction();
+						trueCase.children.addAll(flatContents);
+						inst.caseTrue = trueCase;
+					} else {
+						inst.caseTrue = flatContents.get(0);
+					}
+				}
+				result.add(inst);
 				break;
-			case WHILE_STATEMENT:
-				break;
+			}
 			default:
 				throw new TokenException("Cannot flatten unknown type " + code.getType(), code.startToken);
+		}
+		return result;
+	}
+
+	private List<Instruction> wrapFunction(TrackedFunction func, List<Instruction> instructions) {
+		List<Instruction> results = new ArrayList<>();
+
+		int offset = func.def.argumentTypes.size() - 1;
+		for (int i = 0; i < func.def.argumentTypes.size(); i++) {
+			NameStackEntryInstruction inst = new NameStackEntryInstruction();
+			inst.source = func.def.arguments.get(i);
+			inst.offset = offset;
+			inst.name = func.def.arguments.get(i).token;
+			inst.type = func.def.argumentTypes.get(i).token;
+			results.add(inst);
+			offset--;
+		}
+		for (int i = 0; i < instructions.size(); i++) {
+			alterReturnsFor(instructions.get(i), func);
+			results.add(instructions.get(i));
+		}
+		insertDeletes(results, new HashSet<>(), new HashSet<>());
+		return results;
+	}
+
+	private void alterReturnsFor(Instruction inst, TrackedFunction func) {
+		if (inst instanceof ReturnInstruction r) {
+			r.from = func;
+			if (r.returnTypes.size() != func.getReturnTypes().size()) {
+				throw new TokenException("Incorrect number of return types in function " + func.def.name, r.source);
+			}
+			for (int i = 0; i < r.returnTypes.size(); i++) {
+				if (!r.returnTypes.get(i).equals(func.def.returnTypes.get(i).token)) {
+					throw new TokenException("Incorrect return types in function " + func.def.name, r.returnSources.get(i));
+				}
+			}
+		}
+		if (inst instanceof ScopeBlockInstruction b) {
+			for (Instruction i : b.children) {
+				alterReturnsFor(i, func);
+			}
+		}
+		if (inst instanceof WhileInstruction w) {
+			alterReturnsFor(w.caseTrue, func);
+		}
+		if (inst instanceof IfInstruction f) {
+			alterReturnsFor(f.caseTrue, func);
+			if (f.caseFalse != null) alterReturnsFor(f.caseFalse, func);
+
+		}
+	}
+
+	private void insertDeletes(List<Instruction> insts, Set<String> used, Set<String> protect) {
+		for (int j = 0; j < insts.size(); j++) {
+			Instruction inst = insts.get(j);
+
+			used.addAll(inst.createsStackEntries());
+
+			Set<String> childProtect = new HashSet<>(protect);
+			childProtect.addAll(used);
+			System.out.println(inst.getClass() + " " + childProtect);
+
+			if (inst instanceof ScopeBlockInstruction b) {
+				insertDeletes(b.children, new HashSet<>(), childProtect);
+			}
+			if (inst instanceof WhileInstruction w) {
+				if (w.caseTrue instanceof ScopeBlockInstruction b) {
+					insertDeletes(b.children, new HashSet<>(), childProtect);
+				}
+			}
+			if (inst instanceof IfInstruction f) {
+				if (f.caseTrue instanceof ScopeBlockInstruction b) {
+					insertDeletes(b.children, new HashSet<>(), childProtect);
+				}
+				if (f.caseFalse != null) {
+					if (f.caseFalse instanceof ScopeBlockInstruction b) {
+						insertDeletes(b.children, new HashSet<>(), childProtect);
+					}
+				}
+			}
+
+			List<String> remove = new ArrayList<>();
+			List<String> usedLater = getUsed(insts.subList(j + 1, insts.size()));
+			usedLater.addAll(protect);
+			for (String s : used) {
+				if (!usedLater.contains(s)) {
+					remove.add(s);
+					DeleteInstruction del = new DeleteInstruction();
+					del.source = inst.source;
+					del.stackName = s;
+					insts.add(j + 1, del);
+					j++;
+				}
+			}
+			used.removeAll(remove);
+		}
+	}
+
+	private List<String> getUsed(List<Instruction> inst) {
+		List<String> result = new ArrayList<>();
+		for (Instruction i : inst) {
+			result.addAll(i.usesStackEntries());
 		}
 		return result;
 	}
@@ -719,9 +976,16 @@ public class Compiler {
 		}
 	}
 
-	private class Instruction {
+	private abstract class Instruction {
 
 		Token source;
+
+		public abstract List<String> usesStackEntries();
+
+		public List<String> createsStackEntries() {
+			return usesStackEntries();
+		}
+
 	}
 
 	private class ScopeBlockInstruction extends Instruction {
@@ -731,6 +995,19 @@ public class Compiler {
 
 		public String toString() {
 			return "ScopeBlockInstruction [\n" + children.stream().map(Object::toString).reduce((s1, s2) -> s1 + "\n" + s2).orElse("") + "\n]";
+		}
+
+		public List<String> usesStackEntries() {
+			List<String> results = new ArrayList<>();
+			for (Instruction i : children) {
+				results.addAll(i.usesStackEntries());
+			}
+			return results;
+		}
+
+		public List<String> createsStackEntries() {
+			List<String> results = new ArrayList<>();
+			return results;
 		}
 
 	}
@@ -746,6 +1023,10 @@ public class Compiler {
 			return "NameStackEntryInstruction [offset=" + offset + ", name=" + name + ", type=" + type + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(name);
+		}
+
 	}
 
 	private class CallInstruction extends Instruction {
@@ -756,6 +1037,10 @@ public class Compiler {
 
 		public String toString() {
 			return "CallInstruction [target=" + target + "]";
+		}
+
+		public List<String> usesStackEntries() {
+			return arraylist();
 		}
 
 	}
@@ -770,6 +1055,10 @@ public class Compiler {
 			return "CallCleanupInstruction [from=" + from + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist();
+		}
+
 	}
 
 	private class CopyInstruction extends Instruction {
@@ -780,6 +1069,10 @@ public class Compiler {
 
 		public String toString() {
 			return "CopyInstruction [stackName=" + stackName + ", target=" + target + "]";
+		}
+
+		public List<String> usesStackEntries() {
+			return arraylist(stackName, target);
 		}
 
 	}
@@ -793,6 +1086,10 @@ public class Compiler {
 			return "PushCopyInstruction [stackName=" + stackName + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class PushInstruction extends Instruction {
@@ -801,6 +1098,10 @@ public class Compiler {
 			return "PushInstruction []";
 		}
 		//Create a stack entry
+
+		public List<String> usesStackEntries() {
+			return arraylist();
+		}
 
 	}
 
@@ -813,6 +1114,10 @@ public class Compiler {
 			return "DeleteInstruction [stackName=" + stackName + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class PopInstruction extends Instruction {
@@ -822,15 +1127,25 @@ public class Compiler {
 		}
 		//Remove the last stack entry
 
+		public List<String> usesStackEntries() {
+			return arraylist();
+		}
+
 	}
 
 	private class ReturnInstruction extends Instruction {
 
 		//return from a function
 		TrackedFunction from;
+		List<String> returnTypes = new ArrayList<>();
+		List<Token> returnSources = new ArrayList<>();
 
 		public String toString() {
-			return "ReturnInstruction [from=" + from + "]";
+			return "ReturnInstruction [from=" + from + ", types=" + returnTypes + "]";
+		}
+
+		public List<String> usesStackEntries() {
+			return arraylist();
 		}
 
 	}
@@ -846,6 +1161,18 @@ public class Compiler {
 			return "IfInstruction [stackName=" + stackName + ", caseTrue=" + caseTrue + ", caseFalse=" + caseFalse + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			List<String> result = arraylist(stackName);
+			result.addAll(caseTrue.usesStackEntries());
+			if (caseFalse != null) result.addAll(caseFalse.usesStackEntries());
+			return result;
+		}
+
+		public List<String> createsStackEntries() {
+			List<String> result = arraylist(stackName);
+			return result;
+		}
+
 	}
 
 	private class WhileInstruction extends Instruction {
@@ -856,6 +1183,17 @@ public class Compiler {
 
 		public String toString() {
 			return "WhileInstruction [stackName=" + stackName + ", caseTrue=" + caseTrue + "]";
+		}
+
+		public List<String> usesStackEntries() {
+			List<String> result = arraylist(stackName);
+			result.addAll(caseTrue.usesStackEntries());
+			return result;
+		}
+
+		public List<String> createsStackEntries() {
+			List<String> result = arraylist(stackName);
+			return result;
 		}
 
 	}
@@ -870,6 +1208,10 @@ public class Compiler {
 			return "CharInstruction [stackName=" + stackName + ", symbol=" + symbol + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class StringInstruction extends Instruction {
@@ -880,6 +1222,10 @@ public class Compiler {
 
 		public String toString() {
 			return "StringInstruction [stackName=" + stackName + ", symbols=" + symbols + "]";
+		}
+
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
 		}
 
 	}
@@ -923,12 +1269,18 @@ public class Compiler {
 			return "AtEqualsInstruction [stackName=" + stackName + ", stackName2=" + stackName2 + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName, stackName2);
+		}
+
 	}
 
 	private class AtEqualsInlineInstruction extends DefaultFunctionInstruction {
 
 		public AtEqualsInlineInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
+			symbol = ((CharacterLiteral) call.arguments.get(1)).contents.token;
 		}
 
 		//compare one value on the stack
@@ -939,12 +1291,17 @@ public class Compiler {
 			return "AtEqualsInlineInstruction [stackName=" + stackName + ", symbol=" + symbol + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class NextInstruction extends DefaultFunctionInstruction {
 
 		public NextInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
 		}
 
 		//move a cursor on the stack
@@ -952,6 +1309,10 @@ public class Compiler {
 
 		public String toString() {
 			return "NextInstruction [stackName=" + stackName + "]";
+		}
+
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
 		}
 
 	}
@@ -960,13 +1321,18 @@ public class Compiler {
 
 		public ResetInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
 		}
 
 		//move a cursor on the stack
 		String stackName;
 
 		public String toString() {
-			return "NextInstruction [stackName=" + stackName + "]";
+			return "ResetInstruction [stackName=" + stackName + "]";
+		}
+
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
 		}
 
 	}
@@ -975,6 +1341,7 @@ public class Compiler {
 
 		public PreviousInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
 		}
 
 		//move a cursor on the stack
@@ -984,12 +1351,17 @@ public class Compiler {
 			return "PreviousInstruction [stackName=" + stackName + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class StartInstruction extends DefaultFunctionInstruction {
 
 		public StartInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
 		}
 
 		//check if the cursor of a stack entry is at the start
@@ -999,12 +1371,17 @@ public class Compiler {
 			return "StartInstruction [stackName=" + stackName + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class EndInstruction extends DefaultFunctionInstruction {
 
 		public EndInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
 		}
 
 		//check if the cursor of a stack entry is at the end
@@ -1014,12 +1391,18 @@ public class Compiler {
 			return "EndInstruction [stackName=" + stackName + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class InsertInstruction extends DefaultFunctionInstruction {
 
 		public InsertInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
+			source = ((VariableRead) call.arguments.get(1)).name.token;
 		}
 
 		//insert a symbol into a stack entry from another stack entry
@@ -1030,12 +1413,18 @@ public class Compiler {
 			return "InsertInstruction [stackName=" + stackName + ", source=" + source + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName, source);
+		}
+
 	}
 
 	private class InsertInlineInstruction extends DefaultFunctionInstruction {
 
 		public InsertInlineInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
+			symbol = ((CharacterLiteral) call.arguments.get(1)).contents.token;
 		}
 
 		//insert a symbol into a stack entry from code
@@ -1046,12 +1435,18 @@ public class Compiler {
 			return "InsertInlineInstruction [stackName=" + stackName + ", symbol=" + symbol + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class SetInstruction extends DefaultFunctionInstruction {
 
 		public SetInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
+			source = ((VariableRead) call.arguments.get(1)).name.token;
 		}
 
 		//set a symbol into a stack entry from another stack entry
@@ -1062,12 +1457,18 @@ public class Compiler {
 			return "SetInstruction [stackName=" + stackName + ", source=" + source + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName, source);
+		}
+
 	}
 
 	private class SetInlineInstruction extends DefaultFunctionInstruction {
 
 		public SetInlineInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
+			symbol = ((CharacterLiteral) call.arguments.get(1)).contents.token;
 		}
 
 		//set a symbol into a stack entry from code
@@ -1078,12 +1479,17 @@ public class Compiler {
 			return "SetInlineInstruction [stackName=" + stackName + ", symbol=" + symbol + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class RemoveInstruction extends DefaultFunctionInstruction {
 
 		public RemoveInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
 		}
 
 		//remove a symbol from a stack entry
@@ -1093,12 +1499,17 @@ public class Compiler {
 			return "RemoveInstruction [stackName=" + stackName + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class DebugPrintInstruction extends DefaultFunctionInstruction {
 
 		public DebugPrintInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
 		}
 
 		//copy the contents of a stack entry to the debug print.
@@ -1108,12 +1519,17 @@ public class Compiler {
 			return "DebugPrintInstruction [stackName=" + stackName + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class AcceptInstruction extends DefaultFunctionInstruction {
 
 		public AcceptInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
 		}
 
 		//copy the contents of a stack entry to output.
@@ -1123,12 +1539,17 @@ public class Compiler {
 			return "AcceptInstruction [stackName=" + stackName + "]";
 		}
 
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
+		}
+
 	}
 
 	private class RejectInstruction extends DefaultFunctionInstruction {
 
 		public RejectInstruction(FunctionCall call) {
 			super(call);
+			stackName = ((VariableRead) call.arguments.get(0)).name.token;
 		}
 
 		//copy the contents of a stack entry to output.
@@ -1136,6 +1557,10 @@ public class Compiler {
 
 		public String toString() {
 			return "RejectInstruction [stackName=" + stackName + "]";
+		}
+
+		public List<String> usesStackEntries() {
+			return arraylist(stackName);
 		}
 
 	}
