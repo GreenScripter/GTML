@@ -1,5 +1,5 @@
 h,e,l,o, ,w,r,d
-MARKER,PRINTPOINT,STACK,CURSOR,1,0
+MARKER,PRINTPOINT,STACK,CURSOR,COPY,COPY2,1,0
 initial,I,accept,A
 
 module findright:
@@ -31,9 +31,9 @@ inputstates,finish
 initial,AUR,start
 
 start,S,,a,finish
-start,ARM(temp),MARKER,state2
-state2,SD(temp),,temp,tomark
-state2,ARM(temp),temp,state2
+start,ARM(insert_memory),MARKER,state2
+state2,SD(insert_memory),,insert_memory,tomark
+state2,ARM(insert_memory),insert_memory,state2
 
 tomark,AUS,$findleft,MARKER,write,fail
 
@@ -46,9 +46,9 @@ inputsets,a
 inputstates,finish
 
 initial,S,,a,finish
-initial,ALM(temp),MARKER,state2
-state2,SD(temp),,temp,tomark
-state2,ALM(temp),temp,state2
+initial,ALM(insert_memory),MARKER,state2
+state2,SD(insert_memory),,insert_memory,tomark
+state2,ALM(insert_memory),insert_memory,state2
 
 tomark,AUS,$findright,MARKER,write,fail
 
@@ -83,9 +83,9 @@ inputsets
 inputstates,finish
 
 initial,AS,MARKER,$findright,,state1,state1
-state1,LM(temp),,,state2
-state2,SD(temp),MARKER,temp,finish
-state2,ALM(temp),temp,state2
+state1,LM(delete_memory),,,state2
+state2,SD(delete_memory),MARKER,delete_memory,finish
+state2,ALM(delete_memory),delete_memory,state2
 
 endmodule
 
@@ -109,6 +109,15 @@ state2,L,,,state3
 state3,L,STACK,,state4
 state4,S,STACK,STACK,finish
 state4,AL,,state4
+endmodule
+
+module gotostackend:
+inputsets
+inputstates,finish
+
+initial,AUS,$findright,,state2,state2
+
+state2,L,,,finish
 endmodule
 
 module endofstackentry:
@@ -157,9 +166,9 @@ inputstates,finish
 initial,AUR,start
 
 start,S,,a,finish
-start,ARM(temp),MARKER,state2
-state2,SD(temp),,temp,tomark
-state2,ARM(temp),temp,state2
+start,ARM(insert_memory),MARKER,state2
+state2,SD(insert_memory),,insert_memory,tomark
+state2,ARM(insert_memory),insert_memory,state2
 
 tomark,AUS,$findleft,MARKER,write,fail
 
@@ -182,8 +191,8 @@ inputstates,finish
 
 initial,UR,CURSOR,start
 
-start,ALM(temp),CURSOR,writeback
-writeback,ARD(temp),temp,finish
+start,ALM(next_memory),CURSOR,writeback
+writeback,ARD(next_memory),next_memory,finish
 
 endmodule
 
@@ -193,8 +202,8 @@ inputstates,finish
 
 initial,UL,CURSOR,start
 
-start,ARM(temp),CURSOR,writeback
-writeback,ALD(temp),temp,finish
+start,ARM(prev_memory),CURSOR,writeback
+writeback,ALD(prev_memory),prev_memory,finish
 
 endmodule
 
@@ -231,9 +240,156 @@ moveback,AUS,$previouscursor,initial
 
 endmodule
 
+module clearstack:
+inputsets
+inputstates,finish
+
+initial,AUS,$resetcursor,loopinit
+
+loopinit,AUR,loopinit2
+loopinit2,US,STACK,finish
+loopinit2,AUS,$delete,loop
+
+loop,US,STACK,finish
+loop,AUS,$delete,loop
+
+endmodule
+
+module swapleft:
+inputsets
+inputstates,finish
+
+initial,ALM(prev_memory),,copy
+copy,ARM(prev_memory),prev_memory,writeback
+writeback,SD(prev_memory),,prev_memory,finish
+
+
+endmodule
+
+module copyright:
+inputsets
+inputstates,finish
+
+initial,AUS,$findright,COPY,placeholder,placeholder
+placeholder,AUS,$insert,COPY,placeholder2
+placeholder2,AUS,$findleft,COPY2,start,start
+
+start,AUS,$swapleft,copyover
+copyover,UL,STACK,exit
+exit,AUS,$delete,exit2
+exit2,AUS,$findright,COPY,exit3,exit3
+exit3,AUS,$delete,exit4
+exit4,AUS,$delete,finish
+
+copyover,AUSM(copy_memory),$findright,COPY,paste,paste
+paste,R,COPY,COPY,paste2
+paste2,ASD(copy_memory),copy_memory,loop
+loop,AUL,$insert,COPY,loop2
+loop2,AUS,$findleft,COPY2,start,start
+
+endmodule
+
+module copyleft:
+inputsets
+inputstates,finish
+
+initial,AUS,$findleft,COPY,placeholder,placeholder
+placeholder,AUS,$insert,COPY,placeholder2
+placeholder2,AUS,$findright,COPY2,start,start
+
+start,AUS,$swapleft,copyover
+copyover,UL,STACK,exit
+exit,AUS,$delete,exit2
+exit2,AUS,$findleft,COPY,exit3,exit3
+exit3,AUS,$delete,exit4
+exit4,AUL,$delete,finish
+
+copyover,AUSM(copy_memory),$findleft,COPY,paste2,paste2
+paste2,ASD(copy_memory),copy_memory,loop
+loop,AUL,$insert,COPY,loop2
+loop2,AUS,$findright,COPY2,start,start
+
+endmodule
+
 initial,AUL,stacksetup1
 stacksetup1,AL,CURSOR,stacksetup2
-stacksetup2,AR,STACK,$findright,,endstack,endstack
-endstack,AS,STACK,_func_main
+stacksetup2,AL,STACK,stacksetup3
+stacksetup3,AL,CURSOR,stacksetup4
+stacksetup4,AR,STACK,$findright,,endstack,endstack
+endstack,AS,STACK,_func_main_string
 
+returned_func_main_string,AS,,printmainresult
+printmainresult,AUL,$findleft,CURSOR,cleanup,cleanup
+cleanup,AUS,$delete,cleanup2
+cleanup2,AUL,$findleft,STACK,cleanup3,cleanup3
+cleanup3,AUR,accept
 
+_func_main_string,AUS,$pushstack,push-0
+push-0,AUL,$insert,COPY,copy-1
+copy-1,AUL,$delete,copy-2
+copy-2,AUS,$downstack,stackMove2-3
+stackMove2-3,AUL,$insert,COPY2,copy-5
+copy-5,AUS,$copyright,copy-6
+copy-6,AUS,$pushstack,callpush-7
+callpush-7,AUS,$findcursor,callinsert-8
+callinsert-8,AUS,$insert,0,callinsert0-9
+callinsert0-9,AUR,_func_main2_string
+deadcode-10,AUS,deadcode-11
+returned_main2_string_0,AUS,$deletestack,cleanup-12
+cleanup-12,AUS,$pushstack,push-13
+push-13,AUL,$insert,COPY,copy-14
+copy-14,AUL,$delete,copy-15
+copy-15,AUS,$downstack,stackMove3-16
+stackMove3-16,AUL,$insert,COPY2,copy-19
+copy-19,AUS,$copyright,copy-20
+copy-20,AUS,$pushstack,callpush-21
+callpush-21,AUS,$findcursor,callinsert-22
+callinsert-22,AUS,$insert,1,callinsert1-23
+callinsert1-23,AUR,_func_main2_string
+deadcode-24,AUS,deadcode-25
+returned_main2_string_1,AUS,$deletestack,cleanup-26
+cleanup-26,AUS,$downstack,stackMove1-27
+stackMove1-27,AUS,$findcursor,clear-28
+clear-28,AUS,$clearstack,clear-29
+clear-29,AUL,clear-30
+clear-30,AS,COPY,clear-31
+clear-31,AUS,$upstack,stackMove-1-32
+stackMove-1-32,AUL,$insert,COPY2,clear-33
+clear-33,AUS,$copyleft,clear-34
+clear-34,AUS,$deletestack,delete-35
+delete-35,AUS,$pushstack,push-36
+push-36,AUL,$insert,COPY,copy-37
+copy-37,AUL,$delete,copy-38
+copy-38,AUS,$downstack,stackMove1-39
+stackMove1-39,AUL,$insert,COPY2,copy-40
+copy-40,AUS,$copyright,copy-41
+copy-41,AUS,$deletestack,delete-42
+delete-42,AUS,$deletestack,purgestack-43
+purgestack-43,AUS,$gotostackend,stackend-44
+stackend-44,AUS,returned_func_main_string
+deadcode-45,AUS,deadcode-46
+deadcode-46,AUS,$downstack,stackMove1-47
+stackMove1-47,AUS,$deletestack,delete-48
+
+_func_main2_string,AUS,$pushstack,push-54
+push-54,AUL,$insert,COPY,copy-55
+copy-55,AUL,$delete,copy-56
+copy-56,AUS,$downstack,stackMove2-57
+stackMove2-57,AUS,$downstack,stackMove2-58
+stackMove2-58,AUL,$insert,COPY2,copy-59
+copy-59,AUS,$copyright,copy-60
+copy-60,AUS,$downstack,stackMove2-61
+stackMove2-61,AUS,$downstack,stackMove2-62
+stackMove2-62,AUS,$deletestack,purgestack-63
+purgestack-63,AUS,$gotostackend,stackend-64
+stackend-64,AUS,returned_func_main2_string
+deadcode-65,AUS,deadcode-66
+deadcode-66,AUS,$downstack,stackMove1-67
+stackMove1-67,AUS,$deletestack,delete-68
+returned_func_main2_string,AUS,$downstack,downstack-69
+downstack-69,AUS,$findcursor,findcursor-70
+findcursor-70,AUR,move-71
+move-71,UR,0,returned_func_main2_string0
+move-71,UR,1,returned_func_main2_string1
+returned_func_main2_string1,AUS,returned_main2_string_1
+returned_func_main2_string0,AUS,returned_main2_string_0

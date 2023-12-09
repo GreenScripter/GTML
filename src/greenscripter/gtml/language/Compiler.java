@@ -33,7 +33,7 @@ import greenscripter.gtml.utils.Utils;
 public class Compiler {
 
 	public static void main(String[] args) throws IOException {
-		Compiler compiler = new Compiler(new Parser(new File("testcode.gtml")));
+		Compiler compiler = new Compiler(new Parser(new File("testcompile.gtml")));
 		System.out.println(compiler.functions.stream().map(f -> f.def.name).toList());
 		System.out.println(compiler.publicSymbols);
 		System.out.println(compiler.otherSymbols);
@@ -68,6 +68,7 @@ public class Compiler {
 			new DefaultFunction("reject", arraylist("any"), arraylist(), RejectInstruction::new));
 
 	int tempId = 0;
+	int globalInstructionId = 0;
 
 	public Compiler(Parser parser) {
 		this.parser = parser;
@@ -96,10 +97,10 @@ public class Compiler {
 			List<Code> simplified = simplify(func.def.body);
 			simplified.forEach(c -> System.out.println(c.write()));
 			System.out.println("Instructions:");
-			wrapFunction(func, simplified.stream().map(this::flatten).reduce((l1, l2) -> {
-				l1.addAll(l2);
-				return l1;
-			}).orElse(arraylist())).stream().map(s -> Parser.CodeBlock.indentedToString(s.toString())).forEach(System.out::println);
+			List<Instruction> inst = wrapFunction(func, flatten(simplified));
+			inst.stream().map(s -> Parser.CodeBlock.indentedToString(s.toString())).forEach(System.out::println);
+			System.out.println("Assembly:");
+			createTransitions(inst, func).forEach(System.out::println);
 		}
 	}
 
@@ -125,6 +126,8 @@ public class Compiler {
 		otherSymbols.add("STACK");
 		otherSymbols.add("CURSOR");
 		otherSymbols.add("PRINTPOINT");
+		otherSymbols.add("COPY");
+		otherSymbols.add("COPY2");
 		otherSymbols.add("");
 		publicSymbols = new ArrayList<>(publicSymbols.stream().distinct().toList());
 		types = new ArrayList<>(types.stream().distinct().toList());
@@ -533,6 +536,14 @@ public class Compiler {
 		return result;
 	}
 
+	private List<Instruction> flatten(List<Code> code) {
+		List<Instruction> inst = new ArrayList<>();
+		for (Code c : code) {
+			inst.addAll(flatten(c));
+		}
+		return inst;
+	}
+
 	//This method only handles "simplified" Code objects
 	private List<Instruction> flatten(Code code) {
 		List<Instruction> result = new ArrayList<>();
@@ -564,7 +575,7 @@ public class Compiler {
 						func.callers.add(callinst);//register caller for return jump
 						result.add(callinst);
 
-						CallCleanupInstruction inst = new CallCleanupInstruction();
+						CallCleanupInstruction inst = new CallCleanupInstruction("returned_" + func.def.name + func.def.returnTypes.stream().map(t -> "_" + t.token).reduce("", String::concat));
 						inst.source = source.startToken;
 						inst.from = func;
 						inst.call = callinst;
@@ -713,7 +724,7 @@ public class Compiler {
 					func.callers.add(callinst);//register caller for return jump
 					result.add(callinst);
 
-					CallCleanupInstruction inst = new CallCleanupInstruction();
+					CallCleanupInstruction inst = new CallCleanupInstruction("returned_" + func.def.name + func.def.returnTypes.stream().map(t -> "_" + t.token).reduce("", String::concat));
 					inst.source = call.startToken;
 					inst.from = func;
 					inst.call = callinst;
@@ -841,7 +852,7 @@ public class Compiler {
 		for (int i = 0; i < func.def.argumentTypes.size(); i++) {
 			NameStackEntryInstruction inst = new NameStackEntryInstruction();
 			inst.source = func.def.arguments.get(i);
-			inst.offset = offset;
+			inst.offset = offset + 1;
 			inst.name = func.def.arguments.get(i).token;
 			inst.type = func.def.argumentTypes.get(i).token;
 			results.add(inst);
@@ -936,6 +947,245 @@ public class Compiler {
 		return result;
 	}
 
+	private List<ATransition> createTransitions(List<Instruction> instructions, TrackedFunction func) {
+		List<ATransition> transitions = new ArrayList<>();
+		String name = "_func_" + func.def.name;
+
+		StaticStackScope scope = new StaticStackScope();
+
+		for (Token s : func.def.argumentTypes) {
+			name += "_" + s.token;
+			scope.push();
+
+		}
+		scope.push();//return target push
+
+		for (Instruction inst : instructions) {
+			transitions.addAll(inst.generateTransitions(scope, name));
+			if (transitions.size() > 0) {
+				name = transitions.get(transitions.size() - 1).target;
+			}
+
+		}
+
+		//TODO Add code for return exit jump
+
+		TransitionConstructor tc = wrap("returned" + func.getTransitionId());
+		for (int i = 0; i < func.getReturnTypes().size(); i++) {
+			tc.add("downstack", "AUS", "$downstack");
+		}
+
+		tc.add("findcursor", "AUS", "$findcursor");
+		tc.add("move", "AUR");
+
+		int readLength = func.getReturnCodeSize();
+		System.out.println("Code size: " + readLength);
+		if (readLength == 0) {
+			if (!func.callers.isEmpty()) tc.steps.add(new ATransition(func.callers.get(0).cleanup.jumpName, tc.previous, "UR", "0"));
+		} else {
+			String header = "returned" + func.getTransitionId();
+			List<String> previous = new ArrayList<>();
+			tc.steps.add(new ATransition(header + "0", tc.previous, "UR", "0"));
+			tc.steps.add(new ATransition(header + "1", tc.previous, "UR", "1"));
+			previous.add(header + "1");
+			previous.add(header + "0");
+			List<String> next = new ArrayList<>();
+			for (int i = 1; i < readLength; i++) {
+				for (String s : previous) {
+					tc.steps.add(new ATransition(s + "1", s, "UR", "1"));
+					tc.steps.add(new ATransition(s + "0", s, "UR", "0"));
+					next.add(s + "1");
+					next.add(s + "0");
+				}
+				previous.clear();
+				previous.addAll(next);
+				next.clear();
+			}
+			for (String s : previous) {
+				//				System.out.println(s+" -> "+s.substring(header.length()));
+				CallInstruction inst = func.getCaller(s.substring(header.length()));
+				if (inst != null) tc.steps.add(new ATransition(inst.cleanup.jumpName, s, "AUS"));
+			}
+
+		}
+
+		transitions.addAll(tc.get());
+		return transitions;
+	}
+
+	private class StaticStackScope {
+
+		Map<String, ScopedEntry> named = new HashMap<>();
+
+		List<ScopedEntry> stack = new ArrayList<>();
+
+		StaticStackScope parent;
+
+		int stackIndex;
+		boolean insideEntry;
+
+		public StaticStackScope() {
+
+		}
+
+		public StaticStackScope(StaticStackScope p) {
+			parent = p;
+		}
+
+		public int retrieve(int index) {
+			int result = index - stackIndex;
+			stackIndex = index;
+			if (parent != null) parent.reset();
+			return result;
+		}
+
+		public void reset() {
+			stackIndex = 0;
+			if (parent != null) parent.reset();
+		}
+
+		public int size() {
+			return stack.size();
+		}
+
+		public ScopedEntry getByName(String name) {
+			if (parent != null && parent.getByName(name) != null) {
+				return parent.getByName(name);
+			}
+			return named.get(name);
+		}
+
+		public int getIndexOf(String name) {
+			for (int i = 0; i < stack.size(); i++) {
+				if (name.equals(get(i).name)) {
+					return i;
+				}
+			}
+			if (parent != null) {
+				return parent.getIndexOf(name) + stack.size();
+			}
+			return -1;
+		}
+
+		public ScopedEntry get(int index) {
+			if (index >= stack.size()) {
+				if (parent == null) return null;
+				return parent.get(index - stack.size());
+			}
+			return stack.get(stack.size() - 1 - index);
+		}
+
+		public void push() {
+			stack.add(new ScopedEntry());
+			stackIndex = 0;
+			if (parent != null) parent.reset();
+		}
+
+		public void pop() {
+			stack.remove(stack.size() - 1);
+			stackIndex = 0;
+			if (parent != null) parent.reset();
+		}
+
+		public void name(int index, String name, String type) {
+			int temp = stackIndex;
+			named.remove(get(index).name);
+			get(index).name = name;
+			get(index).type = type;
+			named.put(name, get(index));
+			stackIndex = temp;
+		}
+
+		public void remove(int index) {
+			if (index >= stack.size()) {
+				throw new IllegalArgumentException("Cannot remove stack entry from parent.");
+			}
+			stackIndex = index;
+			stack.remove(stack.size() - 1 - index);
+		}
+
+		private class ScopedEntry {
+
+			String type;
+			String name;
+
+			public String toString() {
+				return "ScopedEntry [type=" + type + ", name=" + name + "]";
+			}
+
+		}
+
+		public List<ScopedEntry> getEntireStack() {
+			List<ScopedEntry> entry = new ArrayList<>();
+			if (parent != null) {
+				entry.addAll(parent.getEntireStack());
+			}
+			entry.addAll(stack);
+			return entry;
+		}
+
+		public List<ATransition> generateStackMove(String source, int change) {
+			String name = "stackMove" + change;
+			if (change > 0) {
+				List<ATransition> transitions = new ArrayList<>();
+				ATransition prev = new ATransition(instId(name), source, "AUS", "$downstack");
+				transitions.add(prev);
+				for (int i = 1; i < change; i++) {
+					prev = new ATransition(instId(name), prev.target, "AUS", "$downstack");
+					transitions.add(prev);
+				}
+				insideEntry = false;
+				return transitions;
+			}
+			if (change < 0) {
+				List<ATransition> transitions = new ArrayList<>();
+				ATransition prev = new ATransition(instId(name), source, "AUS", "$upstack");
+				transitions.add(prev);
+				for (int i = 1; i < -change; i++) {
+					prev = new ATransition(instId(name), prev.target, "AUS", "$upstack");
+					transitions.add(prev);
+				}
+				if (insideEntry) {
+					prev = new ATransition(instId(name), prev.target, "AUS", "$upstack");
+					transitions.add(prev);
+				}
+				insideEntry = false;
+				return transitions;
+			}
+			return arraylist(new ATransition(instId(name), source, "AUS"));
+		}
+	}
+
+	private int instId() {
+		return globalInstructionId++;
+	}
+
+	private String instId(String name) {
+		return name + "-" + instId();
+	}
+
+	private class ATransition {
+
+		String target;
+		String command;
+
+		public ATransition() {
+
+		}
+
+		public ATransition(String target, String... command) {
+			this.target = target;
+
+			List<String> parts = arraylist(command);
+			parts.add(target);
+			this.command = Utils.mergeCommas(parts);
+		}
+
+		public String toString() {
+			return command;
+		}
+	}
+
 	private interface GeneralFunction {
 
 		List<String> getReturnTypes();
@@ -958,6 +1208,77 @@ public class Compiler {
 
 	}
 
+	private class TransitionConstructor {
+
+		List<ATransition> steps = new ArrayList<>();
+		String previous;
+
+		public TransitionConstructor() {
+
+		}
+
+		public List<ATransition> get() {
+			return steps;
+		}
+
+		public TransitionConstructor add(String name, String... command) {
+			name = instId(name);
+			ATransition next = new ATransition();
+			List<String> parts = arraylist(command);
+			parts.add(0, previous);
+			parts.add(name);
+			next.command = Utils.mergeCommas(parts);
+			next.target = name;
+			previous = name;
+			steps.add(next);
+			return this;
+		}
+
+		public TransitionConstructor moveAdd(String target, StaticStackScope scope) {
+			return moveAdd(scope.getIndexOf(target), scope);
+		}
+
+		public TransitionConstructor moveAdd(int target, StaticStackScope scope) {
+			int move = scope.retrieve(target);
+			System.out.println("move request " + move);
+			if (move == 0) {
+				return this;
+			}
+			List<ATransition> steps = scope.generateStackMove(previous, move);
+			System.out.println(steps);
+			this.steps.addAll(steps);
+			this.previous = steps.get(steps.size() - 1).target;
+			scope.stackIndex = target;
+			return this;
+		}
+
+	}
+
+	private TransitionConstructor wrap(ATransition transition) {
+		TransitionConstructor cont = new TransitionConstructor();
+		cont.steps.add(transition);
+		cont.previous = cont.steps.get(cont.steps.size() - 1).target;
+		return cont;
+	}
+
+	private TransitionConstructor wrap(String previous, List<ATransition> transition) {
+		if (transition.isEmpty()) return wrap(previous);
+		return wrap(transition);
+	}
+
+	private TransitionConstructor wrap(List<ATransition> transition) {
+		TransitionConstructor cont = new TransitionConstructor();
+		cont.steps.addAll(transition);
+		cont.previous = cont.steps.get(cont.steps.size() - 1).target;
+		return cont;
+	}
+
+	private TransitionConstructor wrap(String previous) {
+		TransitionConstructor cont = new TransitionConstructor();
+		cont.previous = previous;
+		return cont;
+	}
+
 	private class TrackedFunction implements GeneralFunction {
 
 		FunctionDefinition def;
@@ -974,6 +1295,37 @@ public class Compiler {
 		public String toString() {
 			return "TrackedFunction [name=" + def.name + ", args=" + def.argumentTypes + ", returns=" + def.returnTypes + "]";
 		}
+
+		public String getReturnCode(CallInstruction inst) {
+			int length = getReturnCodeSize();
+			String code = "";
+			int index = callers.indexOf(inst);
+			for (int i = 0; i < length; i++) {
+				code += index & 1;
+				index = index >> 1;
+			}
+			return code;
+		}
+
+		public CallInstruction getCaller(String returnCode) {
+			return callers.get(Integer.parseInt(returnCode, 2));
+		}
+
+		public int getReturnCodeSize() {
+			if (callers.size() <= 1) return 0;
+			return (int) Math.ceil(Math.log(callers.size()) / Math.log(2));
+		}
+
+		public String getTransitionId() {
+			String name = "_func_" + def.name;
+
+			StaticStackScope scope = new StaticStackScope();
+			for (Token s : def.argumentTypes) {
+				name += "_" + s.token;
+				scope.push();
+			}
+			return name;
+		}
 	}
 
 	private abstract class Instruction {
@@ -985,6 +1337,12 @@ public class Compiler {
 		public List<String> createsStackEntries() {
 			return usesStackEntries();
 		}
+
+		public List<ATransition> generateTransitions(StaticStackScope scope, String previous) {
+			return arraylist();
+		}
+
+		//				public abstract List<ATransition> generateTransitions(StaticStackScope scope, String previous);
 
 	}
 
@@ -1010,6 +1368,18 @@ public class Compiler {
 			return results;
 		}
 
+		public List<ATransition> generateTransitions(StaticStackScope scope, String previous) {
+			List<ATransition> transitions = new ArrayList<>();
+			StaticStackScope inner = new StaticStackScope(scope);
+			for (Instruction inst : children) {
+				transitions.addAll(inst.generateTransitions(inner, previous));
+				if (transitions.size() > 0) {
+					previous = transitions.get(transitions.size() - 1).target;
+				}
+			}
+			return transitions;
+		}
+
 	}
 
 	private class NameStackEntryInstruction extends Instruction {
@@ -1025,6 +1395,11 @@ public class Compiler {
 
 		public List<String> usesStackEntries() {
 			return arraylist(name);
+		}
+
+		public List<ATransition> generateTransitions(StaticStackScope scope, String previous) {
+			scope.name(offset, name, type);
+			return arraylist();
 		}
 
 	}
@@ -1043,13 +1418,39 @@ public class Compiler {
 			return arraylist();
 		}
 
+		public List<ATransition> generateTransitions(StaticStackScope scope, String previous) {
+			for (int i = 0; i < target.def.arguments.size(); i++) {
+				scope.pop();
+			}
+			TransitionConstructor tc = wrap(previous);
+			scope.stackIndex = 0;
+			tc.add("callpush", "AUS", "$pushstack");
+			tc.add("callinsert", "AUS", "$findcursor");
+
+			String code = target.getReturnCode(this);
+			for (int i = 0; i < code.length(); i++) {
+				tc.add("callinsert" + code, "AUS", "$insert", code.charAt(i) + "");
+			}
+			tc.steps.add(new ATransition(target.getTransitionId(), tc.previous, "AUR"));
+			tc.previous = instId("deadcode");
+			tc.add("deadcode", "AUS");
+			return tc.get();
+		}
+
 	}
+
+	int cleanupId = 0;
 
 	private class CallCleanupInstruction extends Instruction {
 
 		//cleanup after jumping back from a function
 		TrackedFunction from;
 		CallInstruction call;
+		String jumpName;
+
+		public CallCleanupInstruction(String name) {
+			jumpName = name + "_" + cleanupId++;
+		}
 
 		public String toString() {
 			return "CallCleanupInstruction [from=" + from + "]";
@@ -1057,6 +1458,14 @@ public class Compiler {
 
 		public List<String> usesStackEntries() {
 			return arraylist();
+		}
+
+		public List<ATransition> generateTransitions(StaticStackScope scope, String previous) {
+			for (@SuppressWarnings("unused")
+			String s : from.getReturnTypes()) {
+				scope.push();
+			}
+			return arraylist(new ATransition(instId("cleanup"), jumpName, "AUS", "$deletestack"));
 		}
 
 	}
@@ -1075,11 +1484,31 @@ public class Compiler {
 			return arraylist(stackName, target);
 		}
 
+		public List<ATransition> generateTransitions(StaticStackScope scope, String previous) {
+			TransitionConstructor tc = wrap(previous);
+			tc.moveAdd(target, scope);
+			tc.add("clear", "AUS", "$findcursor");
+			tc.add("clear", "AUS", "$clearstack");
+			tc.add("clear", "AUL");
+			tc.add("clear", "AS", "COPY");
+			tc.moveAdd(stackName, scope);
+			tc.add("clear", "AUL", "$insert", "COPY2");
+			scope.insideEntry = true;
+
+			if (scope.getIndexOf(target) > scope.getIndexOf(stackName)) {
+				tc.add("clear", "AUS", "$copyleft");
+			} else {
+				tc.add("clear", "AUS", "$copyright");
+			}
+
+			scope.insideEntry = true;
+			return tc.get();
+		}
 	}
 
 	private class PushCopyInstruction extends Instruction {
 
-		//Copy between two stack positions.
+		//Copy between a stack position.
 		String stackName;
 
 		public String toString() {
@@ -1090,6 +1519,26 @@ public class Compiler {
 			return arraylist(stackName);
 		}
 
+		//TODO make a copy
+		public List<ATransition> generateTransitions(StaticStackScope scope, String previous) {
+			System.out.println(scope.getEntireStack() + " " + scope.stackIndex);
+
+			TransitionConstructor tc = wrap(new ATransition(instId("push"), previous, "AUS", "$pushstack"));
+			scope.push();
+			System.out.println(scope.getEntireStack() + " " + scope.stackIndex);
+
+			tc.add("copy", "AUL", "$insert", "COPY");
+			tc.add("copy", "AUL", "$delete");
+			scope.insideEntry = true;
+			tc.moveAdd(stackName, scope);
+			System.out.println(scope.getEntireStack() + " " + scope.stackIndex);
+
+			tc.add("copy", "AUL", "$insert", "COPY2");
+			tc.add("copy", "AUS", "$copyright");
+			scope.insideEntry = true;
+			scope.stackIndex = 0;
+			return tc.get();
+		}
 	}
 
 	private class PushInstruction extends Instruction {
@@ -1101,6 +1550,11 @@ public class Compiler {
 
 		public List<String> usesStackEntries() {
 			return arraylist();
+		}
+
+		public List<ATransition> generateTransitions(StaticStackScope scope, String previous) {
+			scope.push();
+			return arraylist(new ATransition(instId("push"), previous, "AUS", "$pushstack"));
 		}
 
 	}
@@ -1118,6 +1572,19 @@ public class Compiler {
 			return arraylist(stackName);
 		}
 
+		public List<ATransition> generateTransitions(StaticStackScope scope, String previous) {
+			int target = scope.getIndexOf(stackName);
+			int move = scope.retrieve(scope.getIndexOf(stackName));
+			if (move == 0) {
+				scope.remove(target);
+				return arraylist(new ATransition(instId("delete"), previous, "AUS", "$deletestack"));
+			}
+			List<ATransition> steps = scope.generateStackMove(previous, move);
+			scope.remove(target);
+			steps.add(new ATransition(instId("delete"), steps.get(steps.size() - 1).target, "AUS", "$deletestack"));
+			return steps;
+		}
+
 	}
 
 	private class PopInstruction extends Instruction {
@@ -1129,6 +1596,11 @@ public class Compiler {
 
 		public List<String> usesStackEntries() {
 			return arraylist();
+		}
+
+		public List<ATransition> generateTransitions(StaticStackScope scope, String previous) {
+			scope.pop();
+			return arraylist(new ATransition(instId("pop"), previous, "AUS", "$popstack"));
 		}
 
 	}
@@ -1146,6 +1618,24 @@ public class Compiler {
 
 		public List<String> usesStackEntries() {
 			return arraylist();
+		}
+
+		public List<ATransition> generateTransitions(StaticStackScope scope, String previous) {
+			TransitionConstructor tc = wrap(previous);
+			int purgeCount = scope.getEntireStack().size() - from.getReturnTypes().size() - 1;
+			tc.moveAdd(from.getReturnTypes().size() + purgeCount, scope);
+			System.out.println("Stack contents: " + scope.getEntireStack());
+			System.out.println("Purge count: " + purgeCount);
+			System.out.println("Purge target: " + (from.getReturnTypes().size() + purgeCount));
+			for (int i = 0; i < purgeCount; i++) {
+				tc.add("purgestack", "AUS", "$deletestack");
+			}
+			tc.add("stackend", "AUS", "$gotostackend");
+
+			tc.steps.add(new ATransition("returned" + from.getTransitionId(), tc.previous, "AUS"));
+			tc.previous = instId("deadcode");
+			tc.add("deadcode", "AUS");
+			return tc.get();
 		}
 
 	}

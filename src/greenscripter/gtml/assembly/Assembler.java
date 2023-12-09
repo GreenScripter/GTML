@@ -235,65 +235,65 @@ public class Assembler {
 				}
 			}
 
-			System.out.println("Instructions: ");
-			transitions.forEach(System.out::println);
-			System.out.println();
+			//			System.out.println("Instructions: ");
+			//			transitions.forEach(System.out::println);
+			//			System.out.println();
 
-			for (Module m : modules.values()) {
-				System.out.println("Module " + m.name + ":");
-				System.out.println("Inputs: " + m.inputs);
-				System.out.println("State Inputs: " + m.inputStates);
-				m.transitions.forEach(System.out::println);
-				System.out.println();
-			}
+			//			for (Module m : modules.values()) {
+			//				System.out.println("Module " + m.name + ":");
+			//				System.out.println("Inputs: " + m.inputs);
+			//				System.out.println("State Inputs: " + m.inputStates);
+			//				m.transitions.forEach(System.out::println);
+			//				System.out.println();
+			//			}
 
 			//apply modules
 			applyModules(modules);
 
-			System.out.println("Modules Applied: ");
-			transitions.forEach(System.out::println);
-			System.out.println();
-			for (Module m : modules.values()) {
-				System.out.println("Module " + m.name + ":");
-				System.out.println("Inputs: " + m.inputs);
-				System.out.println("State Inputs: " + m.inputStates);
-				m.transitions.forEach(System.out::println);
-				System.out.println();
-			}
+			//			System.out.println("Modules Applied: ");
+			//			transitions.forEach(System.out::println);
+			//			System.out.println();
+			//			for (Module m : modules.values()) {
+			//				System.out.println("Module " + m.name + ":");
+			//				System.out.println("Inputs: " + m.inputs);
+			//				System.out.println("State Inputs: " + m.inputStates);
+			//				m.transitions.forEach(System.out::println);
+			//				System.out.println();
+			//			}
 			//apply * transitions
 			applyStarTransitions();
 
-			System.out.println("Stars Applied: ");
-			transitions.forEach(System.out::println);
-			System.out.println();
+			//			System.out.println("Stars Applied: ");
+			//			transitions.forEach(System.out::println);
+			//			System.out.println();
 
 			//apply A transitions
 			applyATransitions(validSymbols);
 
-			System.out.println("As Applied: ");
-			transitions.forEach(System.out::println);
-			System.out.println();
+			//			System.out.println("As Applied: ");
+			//			transitions.forEach(System.out::println);
+			//			System.out.println();
 
 			//apply U transitions
 			applyUTransitions();
 
-			System.out.println("Us Applied: ");
-			transitions.forEach(System.out::println);
-			System.out.println();
+			//			System.out.println("Us Applied: ");
+			//			transitions.forEach(System.out::println);
+			//			System.out.println();
 
 			//apply MD transitions
 			applyMDTransitions();
 
-			System.out.println("MDs Applied: ");
-			transitions.forEach(System.out::println);
-			System.out.println();
+			//			System.out.println("MDs Applied: ");
+			//			transitions.forEach(System.out::println);
+			//			System.out.println();
 
 			//optimize transitions
 			optimize();
 
-			System.out.println("Optimized: ");
-			transitions.forEach(System.out::println);
-			System.out.println();
+			//			System.out.println("Optimized: ");
+			//			transitions.forEach(System.out::println);
+			//			System.out.println();
 
 			//map to simple turing machine
 			for (GeneralTransition trans : transitions) {
@@ -327,7 +327,7 @@ public class Assembler {
 				for (Transition other : result) {
 					if (other.read.equals(t.read)) {
 						duplicate = true;
-//						System.err.println("Warning: Duplicate transitions for symbol " + other.read + " on state " + t.source + " in " + trans.getErrored() + " line: " + trans.lineNumber);
+						//						System.err.println("Warning: Duplicate transitions for symbol " + other.read + " on state " + t.source + " in " + trans.getErrored() + " line: " + trans.lineNumber);
 					}
 				}
 				if (!duplicate) result.add(t);
@@ -487,6 +487,7 @@ public class Assembler {
 	}
 
 	private void applyMDTransitions() {
+		System.out.println("Pre MD count: " + transitions.size());
 		Set<GeneralTransition> conditionals = new HashSet<>();
 		for (int i = 0; i < transitions.size(); i++) {
 			GeneralTransition trans = transitions.get(i);
@@ -585,6 +586,7 @@ public class Assembler {
 				trans.destination += append;
 			}
 		}
+		System.out.println("Post MD count: " + transitions.size());
 
 		for (int i = 0; i < transitions.size(); i++) {
 			GeneralTransition trans = transitions.get(i);
@@ -616,18 +618,35 @@ public class Assembler {
 	}
 
 	private boolean checkExists(GeneralTransition trans, String name, String value) {
-		for (int i = 0; i < transitions.size(); i++) {
-			GeneralTransition t = transitions.get(i);
-			if (t.source.equals(trans.source) && t.read.equals(trans.read)) {
+		if (seen.isEmpty()) {
+			for (int i = 0; i < transitions.size(); i++) {
+				GeneralTransition t = transitions.get(i);
+				if (seen.containsKey(t.source)) {
+					seen.get(t.source).add(t.read);
+				} else {
+					seen.put(t.source, new HashSet<>());
+					seen.get(t.source).add(t.read);
+				}
+			}
+		}
+
+		if (seen.containsKey(trans.source)) {
+			if (seen.get(trans.source).contains(trans.read)) {
 				ParsedTO operation = removeTransitionOperator(trans.transition, 'O', trans);
 				if (operation.found && operation.content.size() == 2 && (!operation.content.get(0).equals(name) || !operation.content.get(1).equals(value))) {
-					continue;
+					return false;
 				}
 				return true;
 			}
+		} else {
+			seen.put(trans.source, new HashSet<>());
 		}
+		seen.get(trans.source).add(trans.read);
+
 		return false;
 	}
+
+	Map<String, Set<String>> seen = new HashMap<>();
 
 	private TPair getMDSet(GeneralTransition trans, String name, String value) {
 		Set<GeneralTransition> allSeen = new HashSet<>();
@@ -671,54 +690,56 @@ public class Assembler {
 
 	private void optimize() {
 		//optimize away AUS transitions
-//		for (int i = 0; i < transitions.size(); i++) {
-//			GeneralTransition trans = transitions.get(i);
-//			if (trans.read.equals(trans.write) && trans.transition.equals("S")) {
-//				boolean others = false;
-//				for (GeneralTransition t : transitions) {
-//					if (t.source.equals(trans.source) && !(t.read.equals(t.write) && t.transition.equals("S"))) {
-//						others = true;
-//						break;
-//					}
-//				}
-//				if (!others) {
-//					if (trans.source.equals(outputGraph.initialState)) {
-//						outputGraph.initialState = trans.destination;
-//					}
-//					System.out.println("Removing: " + trans.getErrored());
-//					transitions.remove(i);
-//					i--;
-//					for (GeneralTransition t : transitions) {
-//						if (t.destination.equals(trans.source)) {
-//							t.saveTransformation();
-//							t.destination = trans.destination;
-//						}
-//					}
-//				}
-//			}
-//		}
+		//		for (int i = 0; i < transitions.size(); i++) {
+		//			GeneralTransition trans = transitions.get(i);
+		//			if (trans.read.equals(trans.write) && trans.transition.equals("S")) {
+		//				boolean others = false;
+		//				for (GeneralTransition t : transitions) {
+		//					if (t.source.equals(trans.source) && !(t.read.equals(t.write) && t.transition.equals("S"))) {
+		//						others = true;
+		//						break;
+		//					}
+		//				}
+		//				if (!others) {
+		//					if (trans.source.equals(outputGraph.initialState)) {
+		//						outputGraph.initialState = trans.destination;
+		//					}
+		//					System.out.println("Removing: " + trans.getErrored());
+		//					transitions.remove(i);
+		//					i--;
+		//					for (GeneralTransition t : transitions) {
+		//						if (t.destination.equals(trans.source)) {
+		//							t.saveTransformation();
+		//							t.destination = trans.destination;
+		//						}
+		//					}
+		//				}
+		//			}
+		//		}
 		//remove unreachable states
 		boolean anyRemoved = true;
-		while (anyRemoved) {
-			anyRemoved = false;
-			for (int i = 0; i < transitions.size(); i++) {
-				GeneralTransition trans = transitions.get(i);
-				boolean seen = outputGraph.initialState.equals(trans.source);
-				if (!seen) for (GeneralTransition t : transitions) {
-					if (t == trans) continue;
-					if (t.destination.equals(trans.source)) {
-						seen = true;
-						break;
-					}
-				}
-				if (!seen) {
-					anyRemoved = true;
-					transitions.remove(i);
-					i--;
-				}
-			}
-		}
+		//old unreachable code, new version is faster.
+		//		while (anyRemoved) {
+		//			anyRemoved = false;
+		//			for (int i = 0; i < transitions.size(); i++) {
+		//				GeneralTransition trans = transitions.get(i);
+		//				boolean seen = outputGraph.initialState.equals(trans.source);
+		//				if (!seen) for (GeneralTransition t : transitions) {
+		//					if (t == trans) continue;
+		//					if (t.destination.equals(trans.source)) {
+		//						seen = true;
+		//						break;
+		//					}
+		//				}
+		//				if (!seen) {
+		//					anyRemoved = true;
+		//					transitions.remove(i);
+		//					i--;
+		//				}
+		//			}
+		//		}
 
+		//new unreachable code
 		Set<String> seen = new HashSet<>();
 		seen.add(outputGraph.initialState);
 		anyRemoved = true;
@@ -807,14 +828,14 @@ public class Assembler {
 
 	public static class GeneralTransition {
 
-		String source;
-		String destination;
-		String transition;
-		String read;
-		String write;
+		public String source;
+		public String destination;
+		public String transition;
+		public String read;
+		public String write;
 		Map<String, Set<String>> unions = new HashMap<>();
 		GeneralTransition parent;
-		int lineNumber;
+		public int lineNumber;
 		boolean mVisited = false;
 
 		public GeneralTransition copy() {

@@ -47,6 +47,9 @@ public class Utils {
 		return result;
 	}
 
+	public static String mergeCommas(String... parts) {
+		return mergeCommas(List.of(parts));
+	}
 	public static String mergeCommas(List<String> parts) {
 		StringBuilder sb = new StringBuilder();
 		boolean anyParts = false;

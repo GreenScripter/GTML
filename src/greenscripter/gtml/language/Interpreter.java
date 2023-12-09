@@ -21,12 +21,13 @@ import greenscripter.gtml.language.Parser.IfStatement;
 import greenscripter.gtml.language.Parser.Return;
 import greenscripter.gtml.language.Parser.StringLiteral;
 import greenscripter.gtml.language.Parser.VariableRead;
+import greenscripter.gtml.language.Parser.WhileStatement;
 import greenscripter.gtml.language.Tokenizer.Token;
 
 public class Interpreter {
 
 	public static void main(String[] args) throws IOException {
-		Interpreter interpreter = new Interpreter(new Parser(new File("testcode.gtml")));
+		Interpreter interpreter = new Interpreter(new Parser(new File("testcompile.gtml")));
 		RunResult output = interpreter.run("bainput");
 		System.out.println(output.accept);
 		System.out.println(output.value);
@@ -198,7 +199,7 @@ public class Interpreter {
 			case COMPILER_INFO:
 				return new EvalResult(null, false);
 			case WHILE_STATEMENT: {
-				IfStatement ifState = (IfStatement) block;
+				WhileStatement ifState = (WhileStatement) block;
 				List<Value> p = evaluate(ifState.arguments, scope).value;
 				if (p.size() != 1) {
 					throw new TokenException("Statement with no return value", ifState.arguments.startToken);

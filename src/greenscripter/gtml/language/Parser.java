@@ -645,6 +645,10 @@ public class Parser {
 		public Return(TokenIterator tokens) {
 			startToken = tokens.throwingNext("Missing return statment").forceIs("return");
 
+			if (!tokens.hasNext()) {
+				return;
+			}
+
 			do {
 				Code c = parse(tokens);
 				if (c == null) throw new TokenException("Missing return value", tokens.getEndErrorToken());
