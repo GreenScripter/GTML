@@ -1,0 +1,12 @@
+#symbols(a,b,c)
+
+func main(string input) -> string {
+	string b = main2(input)
+	b = main2(input)
+
+	return b
+}
+
+func main2(string input) -> string {
+	return input
+}
