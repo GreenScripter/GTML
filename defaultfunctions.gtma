@@ -311,6 +311,8 @@ loop2,AUS,$findright,COPY2,start,start
 
 endmodule
 
+Call the main function:
+
 initial,AUL,stacksetup1
 stacksetup1,AL,CURSOR,stacksetup2
 stacksetup2,AL,STACK,stacksetup3
@@ -318,11 +320,15 @@ stacksetup3,AL,CURSOR,stacksetup4
 stacksetup4,AR,STACK,$findright,,endstack,endstack
 endstack,AS,STACK,_func_main_string
 
+Overwrite the functionality of the main function's return:
+
 returned_func_main_string,AS,,printmainresult
 printmainresult,AUL,$findleft,CURSOR,cleanup,cleanup
 cleanup,AUS,$delete,cleanup2
 cleanup2,AUL,$findleft,STACK,cleanup3,cleanup3
 cleanup3,AUR,accept
+
+Main function code:
 
 _func_main_string,AUS,$pushstack,push-0
 push-0,AUL,$insert,COPY,copy-1
